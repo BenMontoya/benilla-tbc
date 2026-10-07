@@ -1,6 +1,6 @@
 //! The Storm (MPQ) crypto, byte-exact with the client: the string hash and the block decryptor,
-//! both over one 0x500-entry table. 1.12.1 archives carry no encrypted files, so only the hash and
-//! block tables are ever decrypted.
+//! both over one 0x500-entry table. Stock mounted 2.4.3 game archives carry no encrypted payload
+//! files, so only the hash and block tables are decrypted here.
 
 /// The 0x500-entry encryption table, built at compile time by the seed walk the client runs.
 const fn encryption_table() -> [u32; 0x500] {

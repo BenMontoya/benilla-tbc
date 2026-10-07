@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use benilla_protocol::messages::{self, opcode};
 use benilla_protocol::{SessionEvent, WorldWriter};
-use benilla_srp::vanilla_header::HeaderCrypto;
+use benilla_srp::header::HeaderCrypto;
 use benilla_srp::{
     password_verifier, NormalizedString, GENERATOR, LARGE_SAFE_PRIME_LITTLE_ENDIAN,
     SESSION_KEY_LENGTH,

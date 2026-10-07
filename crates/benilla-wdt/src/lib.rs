@@ -1,4 +1,4 @@
-//! The 1.12.1 WDT (map tile table) reader, and the tile and world coordinate helpers.
+//! The Burning Crusade 2.4.3 WDT (map tile table) reader, and the tile and world coordinate helpers.
 //!
 //! A `.wdt` holds `MVER`, `MPHD`, `MAIN` and, on a WMO-only map, `MWMO` and one `MODF`. `MAIN` is a
 //! 64×64 table of 8-byte entries whose flag bit 0 marks a tile with an `.adt`. `MPHD` dword 0 bit 0
@@ -6,17 +6,6 @@
 //! 43 shipped maps, every WMO dungeon, each with an empty `MAIN`.
 
 use std::io::{Read, Seek, SeekFrom};
-
-/// The client generation; 1.12.1 is the only one.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum WowVersion {
-    Classic,
-}
-
-/// Re-export, so `benilla_wdt::version::WowVersion` resolves.
-pub mod version {
-    pub use super::WowVersion;
-}
 
 /// Tiles per map edge.
 const MAP_SIZE: usize = 64;
@@ -111,15 +100,11 @@ impl WdtFile {
 /// Reads a [`WdtFile`] from a chunked WDT stream.
 pub struct WdtReader<R> {
     reader: R,
-    _version: WowVersion,
 }
 
 impl<R: Read + Seek> WdtReader<R> {
-    pub fn new(reader: R, version: WowVersion) -> Self {
-        Self {
-            reader,
-            _version: version,
-        }
+    pub fn new(reader: R) -> Self {
+        Self { reader }
     }
 
     /// One chunk's payload, refused before the buffer is sized if the stream cannot hold it.
@@ -136,11 +121,12 @@ impl<R: Read + Seek> WdtReader<R> {
         Ok(buf)
     }
 
-    /// Parse the WDT, walking chunks to EOF and skipping all but `MPHD`, `MAIN`, `MWMO` and `MODF`.
+    /// Parse a 2.4.3 WDT, requiring MVER 18 and reading `MPHD`, `MAIN`, `MWMO` and `MODF`.
     pub fn read(&mut self) -> std::io::Result<WdtFile> {
         let start = self.reader.stream_position()?;
         let stream_end = self.reader.seek(SeekFrom::End(0))?;
         self.reader.seek(SeekFrom::Start(start))?;
+        let mut version = None;
         let mut has_adt: Option<Vec<bool>> = None;
         let mut wmo_only = false;
         let mut wmo_path: Option<String> = None;
@@ -153,6 +139,23 @@ impl<R: Read + Seek> WdtReader<R> {
             // Chunk magics are stored reversed on disk: MAIN is "NIAM".
             let size = u32::from_le_bytes([hdr[4], hdr[5], hdr[6], hdr[7]]) as u64;
             match &hdr[0..4] {
+                b"REVM" => {
+                    let buf = self.read_payload(size, stream_end)?;
+                    if buf.len() < 4 {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            "truncated WDT MVER chunk",
+                        ));
+                    }
+                    let v = u32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]);
+                    if v != 18 {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            format!("unsupported WDT MVER {v} (expected 18 for 2.4.3)"),
+                        ));
+                    }
+                    version = Some(v);
+                }
                 // MPHD: the reference reads only dword 0 bit 0, the no-terrain flag (`0x694810`).
                 b"DHPM" if size >= 4 => {
                     let buf = self.read_payload(size, stream_end)?;
@@ -161,8 +164,16 @@ impl<R: Read + Seek> WdtReader<R> {
                 b"NIAM" => {
                     // 64×64 entries × 8 bytes (flags u32, area_id u32); bit 0 of flags = has_adt.
                     let count = MAP_SIZE * MAP_SIZE;
-                    let mut buf = vec![0u8; count * 8];
-                    self.reader.read_exact(&mut buf)?;
+                    let expected = count * 8;
+                    if size != expected as u64 {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            format!(
+                                "invalid 2.4.3 WDT MAIN size {size} (expected {expected})"
+                            ),
+                        ));
+                    }
+                    let buf = self.read_payload(size, stream_end)?;
                     let grid = (0..count)
                         .map(|i| {
                             let flags = u32::from_le_bytes([
@@ -194,6 +205,12 @@ impl<R: Read + Seek> WdtReader<R> {
                     self.reader.seek(SeekFrom::Current(size as i64))?;
                 }
             }
+        }
+        if version.is_none() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "WDT missing MVER chunk",
+            ));
         }
         let has_adt = has_adt.ok_or_else(|| {
             std::io::Error::new(std::io::ErrorKind::InvalidData, "WDT missing MAIN chunk")
@@ -287,7 +304,7 @@ mod tests {
     }
 
     fn parse(bytes: Vec<u8>) -> std::io::Result<WdtFile> {
-        WdtReader::new(Cursor::new(bytes), WowVersion::Classic).read()
+        WdtReader::new(Cursor::new(bytes)).read()
     }
 
     /// A WMO-only map: `MPHD` bit 0, an empty `MAIN`, `MWMO` and one 64-byte `MODF` of distinct

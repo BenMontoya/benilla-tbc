@@ -295,14 +295,32 @@ pub(crate) fn icon_button<A: Component, I: Bundle, L: Bundle>(
     art: &GlueArt,
     s: f32,
 ) {
+    icon_button_sized(parent, font, action, dyn_icon, fixed, label_dyn, label, art, s, 48.0);
+}
+
+/// A smaller variant for the TBC ten-race character-create grid. The normal 48px class and
+/// gender controls keep their existing dimensions and visual semantics.
+pub(crate) fn icon_button_sized<A: Component, I: Bundle, L: Bundle>(
+    parent: &mut ChildSpawnerCommands,
+    font: &Handle<Font>,
+    action: A,
+    dyn_icon: Option<I>,
+    fixed: Option<(Handle<Image>, Rect)>,
+    label_dyn: Option<L>,
+    label: &str,
+    art: &GlueArt,
+    s: f32,
+    size: f32,
+) {
+    let zoom = size / 48.0;
     let px = |v: f32| Val::Px(v * s);
     let mut b = parent.spawn((
         action,
         Button,
         LockHighlight::default(),
         Node {
-            width: px(48.0),
-            height: px(48.0),
+            width: px(size),
+            height: px(size),
             ..default()
         },
     ));
@@ -314,7 +332,7 @@ pub(crate) fn icon_button<A: Component, I: Bundle, L: Bundle>(
         if let Some(shadow) = &art.icon_shadow {
             b.spawn((
                 ImageNode::new(shadow.clone()),
-                abs(s, -6.0, -6.0, 64.0, 64.0),
+                abs(s, -6.0 * zoom, -6.0 * zoom, 64.0 * zoom, 64.0 * zoom),
             ));
         }
         // A dynamic face is transparent until the refresh assigns it, since a default
@@ -349,6 +367,27 @@ pub(crate) fn icon_button<A: Component, I: Bundle, L: Bundle>(
             ));
         }
         // The wrapper carries the hover visibility, so all nine strings toggle together.
+        // The small TBC race grid keeps its caption visible, including for races whose icons
+        // are not in the older 4×4 sheet. This makes Blood Elf/Draenei buttons identifiable.
+        if size < 48.0 {
+            b.spawn((
+                Text::new(label),
+                TextFont {
+                    font: font.clone(),
+                    font_size: 10.0 * s,
+                    ..default()
+                },
+                TextColor(GOLD),
+                Node {
+                    position_type: PositionType::Absolute,
+                    top: Val::Px(size * s - 13.0 * s),
+                    left: Val::Px(-6.0 * s),
+                    width: Val::Px((size + 12.0) * s),
+                    justify_content: JustifyContent::Center,
+                    ..default()
+                },
+            ));
+        }
         let real = outlined_text(
             b,
             Node {

@@ -88,7 +88,7 @@ impl Probe for QuestTimer {
             .as_ref()
             .and_then(|sf| {
                 sf.raw_fields()
-                    .find(|&(idx, _)| idx == FIELD_PLAYER_QUEST_LOG_1_1 + 3 * u16::from(slot) + 2)
+                    .find(|&(idx, _)| idx == FIELD_PLAYER_QUEST_LOG_1_1 + 4 * u16::from(slot) + 3)
                     .map(|(_, v)| v)
             })
             .unwrap_or(0);

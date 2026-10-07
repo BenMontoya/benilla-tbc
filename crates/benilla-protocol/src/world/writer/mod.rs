@@ -4,7 +4,7 @@
 use std::net::TcpStream;
 
 use anyhow::Result;
-use benilla_srp::vanilla_header::EncrypterHalf;
+use benilla_srp::header::EncrypterHalf;
 
 use super::send_packet;
 

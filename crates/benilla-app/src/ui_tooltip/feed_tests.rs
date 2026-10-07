@@ -37,6 +37,8 @@ fn walking_and_running_speeds() -> crate::net::UnitSpeeds {
         run_back: 4.5,
         swim: 4.7,
         swim_back: 2.5,
+        flight: 7.0,
+        flight_back: 4.5,
         turn_rate: 3.1,
     })
 }

@@ -51,7 +51,7 @@ fn benilla_checkout() -> Option<&'static Path> {
     Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2)
 }
 
-/// The vanilla `Data` directory, or `None` when there is no install. Uncached, so a `$WOW_DATA`
+/// The Burning Crusade 2.4.3 `Data` directory, or `None` when there is no install. Uncached, so a `$WOW_DATA`
 /// change is seen.
 pub fn wow_data() -> Option<PathBuf> {
     candidates().into_iter().find(|c| c.is_dir())

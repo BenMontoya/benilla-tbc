@@ -206,7 +206,7 @@ fn main() -> anyhow::Result<()> {
             continue;
         };
         let Ok(wdt) =
-            benilla_wdt::WdtReader::new(Cursor::new(&*bytes), benilla_wdt::WowVersion::Classic)
+            benilla_wdt::WdtReader::new(Cursor::new(&*bytes))
                 .read()
         else {
             continue;

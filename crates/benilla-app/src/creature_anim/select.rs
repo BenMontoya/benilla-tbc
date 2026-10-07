@@ -75,18 +75,20 @@ pub(crate) mod move_flags {
     /// `MOVEFLAG_LEVITATING`: the swim decision `0x6030c0` bails on it first (`0x6030d2`), so
     /// liquid can neither latch nor clear [`SWIMMING`]; GM flight sets both (`Player.cpp:4595`).
     pub const LEVITATING: u32 = 0x400;
-    /// JUMPING/FALLING: set for the whole airborne arc.
-    pub const FALLING: u32 = 0x2000;
+    /// TBC FALLING: set for the whole airborne arc; carries the launch quad on the wire.
+    pub const FALLING: u32 = 0x1000;
     /// `MOVEFLAG_FALLINGFAR` (`0x633220`/`0x633240`): a jump latches it 1/9 yd below its launch
     /// height, a step-off fall after 500 ms airborne; only StopFalling (`0x7c6290`) clears it.
     pub const FALLING_FAR: u32 = 0x4000;
-    /// `MOVEFLAG_ROOT`: vmangos kicks a root-apply ack without it unless the ack still falls
-    /// (`MovementHandler.cpp:715-722`); a moving bit beside it freezes the 1.12 client.
-    pub const ROOT: u32 = 0x1000;
+    /// TBC `MOVEFLAG_ROOT`: a rooted mover must retain this bit in the apply acknowledgement.
+    pub const ROOT: u32 = 0x0800;
     pub const SWIMMING: u32 = 0x20_0000;
-    /// `MOVEFLAG_ONTRANSPORT` (`MovementInfo.h:56`, not TBC's 0x200): every packet carrying it
-    /// also carries the transport-local pose.
-    pub const ON_TRANSPORT: u32 = 0x0200_0000;
+    pub const ASCENDING: u32 = 0x0040_0000;
+    pub const CAN_FLY: u32 = 0x0080_0000;
+    pub const FLYING: u32 = 0x0100_0000;
+    pub const FLYING2: u32 = 0x0200_0000;
+    /// TBC `MOVEFLAG_ONTRANSPORT` (0x200): also carries the deck-local pose and transport time.
+    pub const ON_TRANSPORT: u32 = 0x0000_0200;
     /// `MOVEFLAG_WATERWALKING`: liquid is walkable ground; read by the liquid-mask selector
     /// `0x6315f0` (`0x63160d`, only when not swimming) and the opcode 0x22 apply `0x61a430`.
     pub const WATER_WALKING: u32 = 0x1000_0000;

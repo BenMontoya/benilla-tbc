@@ -27,16 +27,16 @@ impl ObjectFields {
     pub fn item_creator(&self) -> Option<u64> {
         self.get_guid(10).filter(|&g| g != 0)
     }
-    /// `ITEM_FIELD_ITEM_TEXT_ID` (field 45, owner only): a mailed letter copy's text; nonzero
+    /// `ITEM_FIELD_ITEM_TEXT_ID` (TBC field 57, owner only): a mailed letter copy's text; nonzero
     /// makes a right-click read it (`CMSG_ITEM_TEXT_QUERY`) instead of using the item.
     pub fn item_text_id(&self) -> Option<u32> {
-        self.get_u32(45)
+        self.get_u32(57)
     }
-    /// `ITEM_FIELD_ENCHANTMENT + 3*slot` (field `22 + 3*slot`): the enchant id in one of 7 slots
-    /// (0 permanent, 1 temporary, 2-6 random properties), each an id, duration and charges
+    /// `ITEM_FIELD_ENCHANTMENT + 3*slot` (field `22 + 3*slot`): the enchant id in one of 11 TBC slots
+    /// (permanent, temporary, and random properties), each an id, duration and charges
     /// (`Item.h:117-119`). Signed: the tooltip looks up `abs(id)` and paints a negative one red.
     pub fn item_enchant(&self, slot: u8) -> Option<i32> {
-        (slot < 7)
+        (slot < 11)
             .then(|| self.get_u32(FIELD_ITEM_ENCHANTMENT + 3 * u16::from(slot)))?
             .map(|id| id as i32)
             .filter(|&id| id != 0)
@@ -44,23 +44,23 @@ impl ObjectFields {
     /// `ITEM_FIELD_ENCHANTMENT + 3*slot + 2`: charges left, shown as `" (N Charges)"` if nonzero.
     /// The tooltip skips the duration; a countdown comes from `SMSG_ITEM_ENCHANT_TIME_UPDATE`.
     pub fn item_enchant_charges(&self, slot: u8) -> u32 {
-        (slot < 7)
+        (slot < 11)
             .then(|| self.get_u32(FIELD_ITEM_ENCHANTMENT + 3 * u16::from(slot) + 2))
             .flatten()
             .unwrap_or(0)
     }
-    /// `ITEM_FIELD_RANDOM_PROPERTIES_ID` (field 44): the `ItemRandomProperties.dbc` suffix, 0 if
+    /// `ITEM_FIELD_RANDOM_PROPERTIES_ID` (TBC field 56): the `ItemRandomProperties.dbc` suffix, 0 if
     /// none; only the name uses it (`0x5d8b00`), the roll's enchants fill enchant slots 2-6.
     pub fn item_random_properties_id(&self) -> u32 {
-        self.get_u32(44).unwrap_or(0)
+        self.get_u32(56).unwrap_or(0)
     }
-    /// `ITEM_FIELD_DURABILITY` (field 46): current durability.
+    /// `ITEM_FIELD_DURABILITY` (TBC field 58): current durability.
     pub fn item_durability(&self) -> Option<u32> {
-        self.get_u32(46)
+        self.get_u32(58)
     }
-    /// `ITEM_FIELD_MAXDURABILITY`: the durability ceiling, 0 for an item without durability.
+    /// `ITEM_FIELD_MAXDURABILITY` (TBC field 59): the durability ceiling, 0 for an item without durability.
     pub fn item_max_durability(&self) -> Option<u32> {
-        self.get_u32(47)
+        self.get_u32(59)
     }
     /// `CONTAINER_FIELD_NUM_SLOTS`: a bag object's capacity.
     pub fn container_num_slots(&self) -> Option<u32> {
@@ -71,11 +71,11 @@ impl ObjectFields {
         (i < 36).then(|| self.get_guid(FIELD_CONTAINER_SLOT_1 + 2 * u16::from(i)))?
     }
     /// `PLAYER_VISIBLE_ITEM_<slot>_0`: the public entry worn in equipment slot `i`, which other
-    /// clients render from; each slot is 12 dwords, the entry after a 2-dword creator.
+    /// clients render from; each slot is 16 dwords, the entry after a 2-dword creator.
     pub fn player_visible_item_entry(&self, i: u8) -> Option<u32> {
         (i < 19)
             .then(|| {
-                self.get_u32(FIELD_PLAYER_VISIBLE_ITEM_1_CREATOR + 2 + 12 * u16::from(i))
+                self.get_u32(FIELD_PLAYER_VISIBLE_ITEM_1_CREATOR + 2 + 16 * u16::from(i))
                     .filter(|&e| e != 0)
             })
             .flatten()
@@ -84,10 +84,10 @@ impl ObjectFields {
     /// vmangos fills only 0 and 1 (`MAX_INSPECTED_ENCHANTMENT_SLOT`). The reference's enchant
     /// visuals for every unit, itself included, come from these (`item+0xc`).
     pub fn player_visible_item_enchant(&self, i: u8, j: u8) -> Option<u32> {
-        (i < 19 && j < 7)
+        (i < 19 && j < 11)
             .then(|| {
                 self.get_u32(
-                    FIELD_PLAYER_VISIBLE_ITEM_1_CREATOR + 3 + 12 * u16::from(i) + u16::from(j),
+                    FIELD_PLAYER_VISIBLE_ITEM_1_CREATOR + 3 + 16 * u16::from(i) + u16::from(j),
                 )
                 .filter(|&e| e != 0)
             })
@@ -97,7 +97,7 @@ impl ObjectFields {
     /// (`0x53339f`, `movzx WORD`) of the dword after the 7 enchants. Only the name uses it.
     pub fn player_visible_item_properties(&self, i: u8) -> u32 {
         (i < 19)
-            .then(|| self.get_u32(FIELD_PLAYER_VISIBLE_ITEM_1_CREATOR + 10 + 12 * u16::from(i)))
+            .then(|| self.get_u32(FIELD_PLAYER_VISIBLE_ITEM_1_CREATOR + 14 + 16 * u16::from(i)))
             .flatten()
             .unwrap_or(0)
             & 0xffff
@@ -110,14 +110,14 @@ impl ObjectFields {
     pub fn player_pack_slot(&self, i: u8) -> Option<u64> {
         (i < 16).then(|| self.get_guid(FIELD_PLAYER_PACK_SLOT_1 + 2 * u16::from(i)))?
     }
-    /// `PLAYER_FIELD_BANK_SLOT_1 + 2i`: our bank's 24 item guids.
+    /// `PLAYER_FIELD_BANK_SLOT_1 + 2i`: our bank's 28 TBC item guids.
     pub fn player_bank_slot(&self, i: u8) -> Option<u64> {
-        (i < 24).then(|| self.get_guid(FIELD_PLAYER_BANK_SLOT_1 + 2 * u16::from(i)))?
+        (i < 28).then(|| self.get_guid(FIELD_PLAYER_BANK_SLOT_1 + 2 * u16::from(i)))?
     }
     /// `PLAYER_FIELD_BANK_BAG_SLOT_1 + 2i`: bank bag `i`'s guid; its contents stream on the bag
     /// item's own `CONTAINER_FIELD_SLOT_*`, addressed as bag 63-68.
     pub fn player_bank_bag_slot(&self, i: u8) -> Option<u64> {
-        (i < 6).then(|| self.get_guid(FIELD_PLAYER_BANK_BAG_SLOT_1 + 2 * u16::from(i)))?
+        (i < 7).then(|| self.get_guid(FIELD_PLAYER_BANK_BAG_SLOT_1 + 2 * u16::from(i)))?
     }
     /// `PLAYER_FIELD_KEYRING_SLOT_1 + 2i`: 32 guids the client walks as slots 81-112, but only
     /// 16 are addressable (vmangos `KEYRING_SLOT_END 97`) and level unlocks 4, 8, 12 or 16.
@@ -187,18 +187,16 @@ impl ObjectFields {
         if slot >= PLAYER_QUEST_LOG_SLOTS {
             return None;
         }
-        let base = FIELD_PLAYER_QUEST_LOG_1_1 + 3 * u16::from(slot);
+        let base = FIELD_PLAYER_QUEST_LOG_1_1 + 4 * u16::from(slot);
         let quest_id = self.get_u32(base)?;
-        let count_state = self.get_u32(base + 1).unwrap_or(0);
-        let timer = self.get_u32(base + 2).unwrap_or(0);
-        let mut counters = [0u8; 4];
-        for (i, c) in counters.iter_mut().enumerate() {
-            *c = ((count_state >> (6 * i)) & 0x3F) as u8;
-        }
+        let state = self.get_u32(base + 1).unwrap_or(0) as u8;
+        let counts = self.get_u32(base + 2).unwrap_or(0);
+        let timer = self.get_u32(base + 3).unwrap_or(0);
+        let counters = std::array::from_fn(|i| ((counts >> (i * 8)) & 0xFF) as u8);
         Some(QuestLogSlot {
             quest_id,
             counters,
-            state: (count_state >> 24) as u8,
+            state,
             timer,
         })
     }
@@ -378,7 +376,8 @@ impl ObjectFields {
     /// `PLAYER_FIELD_COMBO_TARGET` (field 714, guid, private): the unit the combo points sit on;
     /// `GetComboPoints` shows 0 unless it is the current target (`0xb4e2d8`).
     pub fn player_combo_target(&self) -> u64 {
-        self.get_guid(FIELD_PLAYER_FIELD_COMBO_TARGET).unwrap_or(0)
+        // In TBC the combo target is driven by action state, not a persistent player descriptor.
+        0
     }
     /// `PLAYER_FIELD_BYTES` byte 2 (private, field 1222): the four extra action bars' toggles,
     /// bits `0x01..0x08` (`Player.h:360-363`), read by `GetActionBarToggles` (`0x4e7660`) at
@@ -392,46 +391,51 @@ impl ObjectFields {
     /// `RequiredHonorRank` checks (`0x5ea930`); only ever raised (`HonorMgr.cpp:894-895`), so it
     /// outlives a demotion, unlike [`Self::player_pvp_rank`].
     pub fn player_honor_rank(&self) -> Option<u8> {
-        self.get_u32(FIELD_PLAYER_FIELD_BYTES)
-            .map(|b| ((b >> 24) & 0xff) as u8)
+        // Vanilla honor ladder metadata is not streamed by build 8606.
+        None
     }
     /// `PLAYER_BYTES_3` byte 3 (public, `UpdateFields_1_12_1.h:125`): the current internal rank
     /// (`HonorMgr.cpp:900`), 0 unranked, 1-4 negative, 5 up positive, indexing `PVP_RANK_*`;
     /// the drawn rank is `rank > 4 ? rank - 4 : -rank` (`HonorMgr.cpp:991`).
     pub fn player_pvp_rank(&self) -> Option<u8> {
-        self.get_u32(FIELD_PLAYER_BYTES_3)
-            .map(|b| ((b >> 24) & 0xff) as u8)
+        // Vanilla honor ladder metadata is not streamed by build 8606.
+        None
     }
     /// `PLAYER_BYTES_3` byte 2 (public): the city-protector title, a race id (`Player.h:354`);
     /// `UnitPVPName` (`0x609370`) appends `PVP_MEDAL<n>` when nonzero. vmangos never writes it.
     pub fn player_pvp_medal(&self) -> Option<u8> {
-        self.get_u32(FIELD_PLAYER_BYTES_3)
-            .map(|b| ((b >> 16) & 0xff) as u8)
+        // Vanilla honor ladder metadata is not streamed by build 8606.
+        None
     }
     /// `PLAYER_FIELD_SESSION_KILLS` (private): today's honorable and dishonorable kills, both
     /// halves written (`HonorMgr.cpp:913-914`); "session" means today, `GetPVPSessionStats()`.
     pub fn player_session_kills(&self) -> Option<(u16, u16)> {
-        self.get_u16_pair(FIELD_PLAYER_FIELD_SESSION_KILLS)
+        // TBC PLAYER_FIELD_KILLS (packed honorable/dishonorable counters).
+        self.get_u16_pair(1514)
     }
     /// `PLAYER_FIELD_YESTERDAY_KILLS` (private): yesterday's kills, two shorts; vmangos writes a
     /// whole dword (`HonorMgr.cpp:917`), so the dishonorable half is 0, not a decode bug.
     pub fn player_yesterday_kills(&self) -> Option<(u16, u16)> {
-        self.get_u16_pair(FIELD_PLAYER_FIELD_YESTERDAY_KILLS)
+        // Vanilla honor ladder metadata is not streamed by build 8606.
+        None
     }
     /// `PLAYER_FIELD_LAST_WEEK_KILLS` (private): last week's kills; the dishonorable half is 0
     /// from vmangos (`HonorMgr.cpp:929` writes a whole dword).
     pub fn player_last_week_kills(&self) -> Option<(u16, u16)> {
-        self.get_u16_pair(FIELD_PLAYER_FIELD_LAST_WEEK_KILLS)
+        // Vanilla honor ladder metadata is not streamed by build 8606.
+        None
     }
     /// `PLAYER_FIELD_THIS_WEEK_KILLS` (private): this week's kills; the dishonorable half is 0
     /// from vmangos (`HonorMgr.cpp:924` writes a whole dword).
     pub fn player_this_week_kills(&self) -> Option<(u16, u16)> {
-        self.get_u16_pair(FIELD_PLAYER_FIELD_THIS_WEEK_KILLS)
+        // Vanilla honor ladder metadata is not streamed by build 8606.
+        None
     }
     /// `PLAYER_FIELD_THIS_WEEK_CONTRIBUTION` (private): honor earned this week, floored at 0
     /// (`HonorMgr.cpp:925`).
     pub fn player_this_week_contribution(&self) -> Option<u32> {
-        self.get_u32(FIELD_PLAYER_FIELD_THIS_WEEK_CONTRIBUTION)
+        // Vanilla honor ladder metadata is not streamed by build 8606.
+        None
     }
     /// `PLAYER_FIELD_YESTERDAY_CONTRIBUTION` (private): yesterday's honor (`HonorMgr.cpp:918`).
     pub fn player_yesterday_contribution(&self) -> Option<u32> {
@@ -440,12 +444,14 @@ impl ObjectFields {
     /// `PLAYER_FIELD_LAST_WEEK_CONTRIBUTION` (private): last week's honor, what the weekly rank
     /// calculation used (`HonorMgr.cpp:930`).
     pub fn player_last_week_contribution(&self) -> Option<u32> {
-        self.get_u32(FIELD_PLAYER_FIELD_LAST_WEEK_CONTRIBUTION)
+        // Vanilla honor ladder metadata is not streamed by build 8606.
+        None
     }
     /// `PLAYER_FIELD_LAST_WEEK_RANK` (private): last week's standing on the honor ladder, not an
     /// honor rank; 0 is unranked (`HonorMgr.cpp:931`).
     pub fn player_last_week_rank(&self) -> Option<u32> {
-        self.get_u32(FIELD_PLAYER_FIELD_LAST_WEEK_RANK)
+        // Vanilla honor ladder metadata is not streamed by build 8606.
+        None
     }
     /// `PLAYER_FIELD_LIFETIME_HONORBALE_KILLS` (private, vmangos's spelling): lifetime honorable
     /// kills (`HonorMgr.cpp:934`).
@@ -455,13 +461,14 @@ impl ObjectFields {
     /// `PLAYER_FIELD_LIFETIME_DISHONORBALE_KILLS` (private, vmangos's spelling): lifetime
     /// dishonorable kills (`HonorMgr.cpp:935`).
     pub fn player_lifetime_dishonorable_kills(&self) -> Option<u32> {
-        self.get_u32(FIELD_PLAYER_FIELD_LIFETIME_DISHONORABLE_KILLS)
+        // Vanilla honor ladder metadata is not streamed by build 8606.
+        None
     }
     /// `PLAYER_FIELD_BYTES2` byte 0 (private): progress through the current rank, 0-255
     /// (`HonorMgr.cpp:905-909`); a negative rank's `-255` scale wraps in the `uint8` cast.
     pub fn player_honor_rank_bar(&self) -> Option<u8> {
-        self.get_u32(FIELD_PLAYER_FIELD_BYTES2)
-            .map(|b| (b & 0xff) as u8)
+        // Vanilla honor ladder metadata is not streamed by build 8606.
+        None
     }
     /// `UNIT_FIELD_BYTES_0` byte 0: race.
     pub fn unit_race(&self) -> Option<u8> {

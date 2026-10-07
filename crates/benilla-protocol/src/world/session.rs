@@ -1,7 +1,7 @@
 use std::net::{TcpStream, ToSocketAddrs};
 
 use anyhow::{anyhow, bail, Context, Result};
-use benilla_srp::vanilla_header::{HeaderCrypto, ProofSeed};
+use benilla_srp::header::{HeaderCrypto, ProofSeed};
 use benilla_srp::{NormalizedString, SESSION_KEY_LENGTH};
 
 use crate::messages::{self, opcode, Character, MoveMode, ServerPacket};

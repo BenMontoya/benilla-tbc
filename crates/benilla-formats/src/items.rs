@@ -1,5 +1,5 @@
-//! `ItemDisplayInfo.dbc`: a display id to a held item's or worn equipment's visual identity. 23
-//! fields and 92-byte records in 5875, both checked by the reference loader (`0x547590`).
+//! TBC `ItemDisplayInfo.dbc`: 25 fields, 100-byte records, retaining the existing
+//! model, texture, helmet-mask and worn-appearance fields shifted after a new extra string.
 //!
 //! A row's model and texture are independently resolved basenames in the same
 //! `Item\ObjectComponents\<dir>\` folder; never derive one from the other. The Worn Wooden Shield
@@ -99,7 +99,7 @@ impl ItemDisplayCatalog {
     }
 }
 
-/// All 23 columns, the unread ones included, so the field-count check against the header is exact.
+/// All 25 stock TBC columns. A new string after Icon shifts each following visible field.
 pub(crate) fn item_display_info_schema() -> Schema {
     let mut s = Schema::new("ItemDisplayInfo");
     for (name, ty) in [
@@ -109,6 +109,7 @@ pub(crate) fn item_display_info_schema() -> Schema {
         ("ModelTextureLeft", FieldType::String),
         ("ModelTextureRight", FieldType::String),
         ("Icon", FieldType::String),
+        ("TbcExtraModelTexture", FieldType::String),
         ("GeosetGroup0", FieldType::UInt32),
         ("GeosetGroup1", FieldType::UInt32),
         ("GeosetGroup2", FieldType::UInt32),
@@ -137,6 +138,7 @@ pub(crate) fn item_display_info_schema() -> Schema {
         s.add_field(SchemaField::new(name, FieldType::String));
     }
     s.add_field(SchemaField::new("ItemVisualID", FieldType::UInt32));
+    s.add_field(SchemaField::new("TbcExtra24", FieldType::UInt32));
     s
 }
 
@@ -151,17 +153,17 @@ fn catalog_from_records(rs: RecordSet) -> ItemDisplayCatalog {
         ];
         let model_texture = [str_at(&rs, r, 3), str_at(&rs, r, 4)];
         let geoset_groups = [
-            u32_at(r, 6).unwrap_or(0),
             u32_at(r, 7).unwrap_or(0),
             u32_at(r, 8).unwrap_or(0),
+            u32_at(r, 9).unwrap_or(0),
         ];
-        let region_textures = std::array::from_fn(|i| str_at(&rs, r, 14 + i));
-        let helmet_vis = [u32_at(r, 12).unwrap_or(0), u32_at(r, 13).unwrap_or(0)];
+        let region_textures = std::array::from_fn(|i| str_at(&rs, r, 15 + i));
+        let helmet_vis = [u32_at(r, 13).unwrap_or(0), u32_at(r, 14).unwrap_or(0)];
         let icon = str_at(&rs, r, 5).map(|i| format!("Interface\\Icons\\{i}"));
-        let group_sounds = u32_at(r, 11).unwrap_or(0);
-        let spell_visual = u32_at(r, 10).unwrap_or(0);
-        let flags = u32_at(r, 9).unwrap_or(0);
-        let item_visual = u32_at(r, 22).unwrap_or(0) as i32;
+        let group_sounds = u32_at(r, 12).unwrap_or(0);
+        let spell_visual = u32_at(r, 11).unwrap_or(0);
+        let flags = u32_at(r, 10).unwrap_or(0);
+        let item_visual = u32_at(r, 23).unwrap_or(0) as i32;
         displays.insert(
             id,
             ItemDisplay {
@@ -213,7 +215,7 @@ mod tests {
         b
     }
 
-    const FIELD_COUNT: u32 = 23;
+    const FIELD_COUNT: u32 = 25;
     const RECORD_SIZE: u32 = FIELD_COUNT * 4;
     const OFF_EMPTY: u32 = 0;
 
@@ -277,6 +279,7 @@ mod tests {
         rec.extend(u32le(off_texture)); // ModelTextureLeft
         rec.extend(u32le(OFF_EMPTY)); // ModelTextureRight: absent
         rec.extend(u32le(OFF_EMPTY)); // Icon: absent
+        rec.extend(u32le(OFF_EMPTY)); // TBC extra texture basename: absent
         rec.extend(u32le(1)); // GeosetGroup0
         rec.extend(u32le(0)); // GeosetGroup1
         rec.extend(u32le(0)); // GeosetGroup2
@@ -289,6 +292,7 @@ mod tests {
             rec.extend(u32le(OFF_EMPTY)); // region textures: none
         }
         rec.extend(u32le(0)); // ItemVisualID
+        rec.extend(u32le(0)); // TBC trailing extension
         assert_eq!(rec.len(), RECORD_SIZE as usize);
 
         let bytes = build_wdbc(1, FIELD_COUNT, RECORD_SIZE, &rec, &strings.0);
@@ -321,7 +325,7 @@ mod tests {
         );
         assert_eq!(
             display.group_sounds, 21,
-            "field 11 is the ItemGroupSounds id"
+            "TBC field 12 is the ItemGroupSounds id"
         );
     }
 

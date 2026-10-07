@@ -23,15 +23,10 @@ use crate::net::{CharActionResultMessage, CharPick, CharRequest};
 use crate::portrait::{CreateLook, GlueLook, GluePreview};
 use crate::sound::GlueSound;
 
-/// Alliance and Horde race columns, top to bottom: `CharacterCreateEnumerateRaces` fills buttons
-/// 1..8 in `GetAvailableRaces()` order and `CharacterCreate.xml` chains 1-4 down the first column,
-/// 5-8 down the second, so Alliance then Horde, ascending race id. `RACE_ICON_TCOORDS`'s table
-/// order is a name-to-UV lookup and never the layout order.
-///
-/// The Alliance half is also the race-to-side split `ui_unit::race_faction_group` answers
-/// `UnitFactionGroup("player")` with.
-pub(crate) const ALLIANCE: [u8; 4] = [1, 3, 4, 7]; // Human, Dwarf, Night Elf, Gnome
-const HORDE: [u8; 4] = [2, 5, 6, 8]; // Orc, Scourge, Tauren, Troll
+/// TBC race columns: five Alliance and five Horde choices, including Draenei and Blood Elf.
+/// Keep this in sync with the ten playable ChrRaces records from the data catalog.
+pub(crate) const ALLIANCE: [u8; 5] = [1, 3, 4, 7, 11]; // +Draenei
+const HORDE: [u8; 5] = [2, 5, 6, 8, 10]; // +Blood Elf
 /// The reference's initial facing (`SetCharacterCreateFacing(-15)`), reset on every race switch.
 const INITIAL_FACING: f32 = -15.0 * std::f32::consts::PI / 180.0;
 
@@ -675,11 +670,11 @@ mod tests {
 
     #[test]
     fn race_columns_match_the_reference_screen() {
-        assert_eq!(ALLIANCE, [1, 3, 4, 7], "Human, Dwarf, Night Elf, Gnome");
-        assert_eq!(HORDE, [2, 5, 6, 8], "Orc, Scourge, Tauren, Troll");
+        assert_eq!(ALLIANCE, [1, 3, 4, 7, 11], "Alliance plus Draenei");
+        assert_eq!(HORDE, [2, 5, 6, 8, 10], "Horde plus Blood Elf");
         let mut all: Vec<u8> = ALLIANCE.iter().chain(&HORDE).copied().collect();
         all.sort_unstable();
-        assert_eq!(all, (1..=8).collect::<Vec<u8>>());
+        assert_eq!(all, [1, 2, 3, 4, 5, 6, 7, 8, 10, 11]);
         assert!(ALLIANCE.windows(2).all(|w| w[0] < w[1]));
         assert!(HORDE.windows(2).all(|w| w[0] < w[1]));
     }

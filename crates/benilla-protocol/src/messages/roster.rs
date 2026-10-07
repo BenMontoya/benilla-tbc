@@ -1,4 +1,4 @@
-//! Character select: the `SMSG_CHAR_ENUM` [`Character`] entry (vmangos `Player::BuildEnumData`
+//! Character select: the TBC `SMSG_CHAR_ENUM` [`Character`] entry (`Player::BuildEnumData`
 //! order), the create/delete result codes and the create request.
 
 use std::io::{self, Read};
@@ -24,7 +24,7 @@ pub const GENDER_MALE: u8 = 0x0;
 #[derive(Debug, Clone)]
 pub struct CharCreateReq {
     pub name: String,
-    /// `ChrRaces.dbc` id (1 Human … 8 Troll).
+    /// Playable `ChrRaces.dbc` id (including 10 Blood Elf and 11 Draenei).
     pub race: u8,
     /// `ChrClasses.dbc` id (1 Warrior … 11 Druid).
     pub class: u8,
@@ -56,7 +56,7 @@ pub struct CharEnumItem {
 pub struct Character {
     pub guid: u64,
     pub name: String,
-    /// `ChrRaces.dbc` id (1 Human … 8 Troll).
+    /// Playable `ChrRaces.dbc` id (including 10 Blood Elf and 11 Draenei).
     pub race: u8,
     /// `ChrClasses.dbc` id (1 Warrior … 11 Druid).
     pub class: u8,
@@ -112,9 +112,13 @@ impl Character {
         for slot in &mut equipment {
             slot.display_id = read_u32_le(r)?;
             slot.inventory_type = read_u8(r)?;
+            // In build 8606 every equipment record also carries an enchantment aura/visual id.
+            let _enchant_visual = read_u32_le(r)?;
         }
+        // The 20th record is the first equipped bag, with the same nine-byte layout.
         let _first_bag_display_id = read_u32_le(r)?;
         let _first_bag_inventory_id = read_u8(r)?;
+        let _first_bag_enchant_visual = read_u32_le(r)?;
         Ok(Self {
             guid,
             name,

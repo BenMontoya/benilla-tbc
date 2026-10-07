@@ -1,4 +1,4 @@
-//! A 1.12.1 WMO (World Map Object) reader, scoped to what the renderer consumes. A root file holds
+//! A Burning Crusade 2.4.3 WMO (World Map Object) reader, scoped to what the renderer consumes. A root file holds
 //! `MOHD`, `MOTX` and `MOMT` among its tables; each group file holds a `MOGP` super-chunk wrapping
 //! the geometry sub-chunks. A chunk is a 4-char magic stored reversed, a `u32` size, the payload.
 
@@ -42,8 +42,9 @@ pub struct Material {
     pub diff_color: [u8; 3],
     /// MOMT+0x20: the surface's `TerrainType.dbc` id, what a footstep on it sounds like. The
     /// client's down-ray takes the nearer of the terrain and WMO probes, so a building's floor
-    /// decides the step indoors. The 5875 data holds only `{0,1,2,3,4,5,7,8,10}`; 10 ("None", on
-    /// 10 075 of 10 299 materials) resolves through `SoundID 0` to the generic `*Dirt` kit.
+    /// decides the step indoors. The final 2.4.3 chain's 1,204 root WMOs use only
+    /// `{0,1,2,3,4,5,7,8,9,10}`; 10 ("None", on 14,343 of 14,925 materials) resolves through
+    /// `SoundID 0` to the generic `*Dirt` kit.
     pub ground_type: u32,
 }
 
@@ -144,6 +145,8 @@ pub struct WmoGroup {
 #[derive(Debug)]
 pub enum Error {
     NotWmo,
+    MissingVersion,
+    UnsupportedVersion(u32),
     /// A chunk's payload is shorter than its format requires (names the chunk).
     Truncated(&'static str),
 }
@@ -152,6 +155,10 @@ impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Error::NotWmo => write!(f, "not a WMO (no MOHD root or MOGP group chunk)"),
+            Error::MissingVersion => write!(f, "WMO has no MVER chunk"),
+            Error::UnsupportedVersion(v) => {
+                write!(f, "unsupported WMO MVER {v} (expected 17 for 2.4.3)")
+            }
             Error::Truncated(chunk) => write!(f, "truncated WMO chunk: {chunk}"),
         }
     }
@@ -160,19 +167,37 @@ impl std::error::Error for Error {}
 
 type Result<T> = std::result::Result<T, Error>;
 
-/// Parse a WMO root or group from a cursor over the whole file (position ignored).
+/// Parse a Burning Crusade 2.4.3 WMO root or group from the whole file (position ignored).
 pub fn parse_wmo(cursor: &mut Cursor<&[u8]>) -> Result<ParsedWmo> {
     let b: &[u8] = cursor.get_ref();
-    // A group file carries a MOGP super-chunk; a root carries MOHD.
+    let mut version = None;
+    let mut group = None;
+    let mut has_root = false;
+    // A group file carries a MOGP super-chunk; a root carries MOHD. Stock 2.4.3 uses MVER 17.
     for (magic, payload) in chunks(b) {
-        if &magic == b"PGOM" {
-            return Ok(ParsedWmo::Group(parse_group(payload)?));
-        }
-        if &magic == b"DHOM" {
-            return Ok(ParsedWmo::Root(parse_root(b)?));
+        match &magic {
+            b"REVM" => {
+                let v = payload.u32_at(0).ok_or(Error::Truncated("MVER"))?;
+                if v != 17 {
+                    return Err(Error::UnsupportedVersion(v));
+                }
+                version = Some(v);
+            }
+            b"PGOM" => group = Some(payload),
+            b"DHOM" => has_root = true,
+            _ => {}
         }
     }
-    Err(Error::NotWmo)
+    if group.is_none() && !has_root {
+        return Err(Error::NotWmo);
+    }
+    if version.is_none() {
+        return Err(Error::MissingVersion);
+    }
+    if let Some(payload) = group {
+        return Ok(ParsedWmo::Group(parse_group(payload)?));
+    }
+    Ok(ParsedWmo::Root(parse_root(b)?))
 }
 
 fn parse_root(b: &[u8]) -> Result<WmoRoot> {
@@ -384,7 +409,9 @@ mod tests {
     }
 
     fn parse(bytes: &[u8]) -> Result<ParsedWmo> {
-        parse_wmo(&mut Cursor::new(bytes))
+        let mut file = chunk(b"REVM", &17u32.to_le_bytes());
+        file.extend_from_slice(bytes);
+        parse_wmo(&mut Cursor::new(&file))
     }
 
     #[test]

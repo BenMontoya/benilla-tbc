@@ -16,7 +16,7 @@ use benilla_assets::coords::{bevy_to_wow, wow_to_bevy};
 use benilla_assets::materials::{WdlExt, WdlMaterial};
 use benilla_assets::LockRecover;
 use benilla_assets::MapCatalogRes;
-use benilla_assets::{AssetSet, RenderConfig, WorldAssets};
+use benilla_assets::{RenderConfig, WorldAssets};
 use benilla_formats::WdlFile;
 
 /// Chebyshev tile radius of the WDL ring. The shader keeps it a backdrop (near plane at
@@ -28,13 +28,14 @@ const WDL_RADIUS: u32 = 5;
 /// New WDL tiles built per frame (545 vertices each), so a whole ring does not hitch a zone load.
 const WDL_LOADS_PER_FRAME: usize = 8;
 
-/// Loads the map's `.wdl` and a shared material at startup, then streams the ring around the view.
+/// Builds the shared WDL material at startup; the selected map's `.wdl` loads lazily on the first
+/// streaming update, once `CurrentMap` and the map catalog are live.
 pub(crate) struct WdlPlugin;
 
 impl Plugin for WdlPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(MaterialPlugin::<WdlMaterial>::default())
-            .add_systems(Startup, setup_wdl.after(AssetSet::Open))
+            .add_systems(Startup, setup_wdl.after(benilla_assets::AssetSet::Open))
             // The ring follows the world's lifecycle: it spawns only while a world is live.
             .add_systems(Update, stream_wdl.run_if(crate::schedule::world_is_live))
             .add_systems(
@@ -51,8 +52,8 @@ impl Plugin for WdlPlugin {
 /// ring tiles.
 #[derive(Resource)]
 pub(crate) struct WdlStreamer {
-    wdl: WdlFile,
-    /// The `mapId` of the loaded `wdl`; a cross-map teleport reloads it.
+    wdl: Option<WdlFile>,
+    /// The `mapId` the optional `wdl` belongs to; a cross-map teleport reloads it.
     map_id: u32,
     material: Handle<WdlMaterial>,
     loaded: HashMap<(u32, u32), Entity>,
@@ -64,7 +65,7 @@ impl WdlStreamer {
     /// unauthored ocean.
     pub(crate) fn height_under(&self, bevy_pos: Vec3) -> Option<f32> {
         let wow = bevy_to_wow(bevy_pos);
-        self.wdl.height_at(wow[0], wow[1])
+        self.wdl.as_ref()?.height_at(wow[0], wow[1])
     }
 }
 
@@ -81,20 +82,6 @@ fn setup_wdl(
     let (Some(_config), Some(world_assets)) = (config, world_assets) else {
         return; // no client data → no terrain at all, so no WDL
     };
-    // Azeroth (Eastern Kingdoms), matching `world_map`'s `DEFAULT_MAP_ID`.
-    let wdl = match WdlFile::load(&mut world_assets.chain.lock_recover(), "Azeroth") {
-        Ok(w) => {
-            info!(
-                "WDL: Azeroth.wdl loaded ({} distant tiles)",
-                w.present_count()
-            );
-            w
-        }
-        Err(e) => {
-            warn!("WDL unavailable, no distant terrain: {e:#}");
-            return;
-        }
-    };
     // Reads the shared global light, whose fog `build_light_data` packs before the first draw.
     // Opaque: depth-LEQUAL with depth write and no blend, as the reference draws it.
     let material = materials.add(ExtendedMaterial {
@@ -109,8 +96,9 @@ fn setup_wdl(
         },
     });
     commands.insert_resource(WdlStreamer {
-        wdl,
-        map_id: 0,
+        wdl: None,
+        // Sentinel forces the first streaming update to resolve the selected map.
+        map_id: u32::MAX,
         material,
         loaded: HashMap::new(),
     });
@@ -139,31 +127,33 @@ fn stream_wdl(
 
     // Cross-map teleport: reload the new map's `.wdl` and drop the old ring.
     if map_id != streamer.map_id {
-        if let Some(dir) = map_catalog.0.directory(map_id) {
-            match WdlFile::load(&mut assets.chain.lock_recover(), dir) {
-                Ok(wdl) => {
-                    for (_, e) in streamer.loaded.drain() {
-                        commands.entity(e).despawn();
-                    }
-                    streamer.wdl = wdl;
-                    streamer.map_id = map_id;
-                }
-                // No `.wdl` for this map (instances often lack one): clear the ring.
-                Err(_) => {
-                    for (_, e) in streamer.loaded.drain() {
-                        commands.entity(e).despawn();
-                    }
-                    streamer.map_id = map_id;
-                }
-            }
+        for (_, e) in streamer.loaded.drain() {
+            commands.entity(e).despawn();
         }
+        streamer.map_id = map_id;
+        streamer.wdl = map_catalog
+            .0
+            .directory(map_id)
+            .and_then(|dir| match WdlFile::load(&mut assets.chain.lock_recover(), dir) {
+                Ok(wdl) => {
+                    info!("WDL: {dir}.wdl loaded ({} distant tiles)", wdl.present_count());
+                    Some(wdl)
+                }
+                Err(e) => {
+                    warn!("WDL unavailable for {dir}, no distant terrain: {e:#}");
+                    None
+                }
+            });
     }
 
     // The detailed streamer's own view focus.
     let center = focus.resolve(camera.single().ok().map(|c| c.translation));
     // The full window, the camera's own tile included (at a low view distance it is the near
     // horizon); the shader's near plane bounds the band, never the streamed set.
-    let desired = streamer.wdl.tiles_in_ring(center[0], center[1], WDL_RADIUS);
+    let desired = match streamer.wdl.as_ref() {
+        Some(wdl) => wdl.tiles_in_ring(center[0], center[1], WDL_RADIUS),
+        None => return,
+    };
 
     let stale: Vec<(u32, u32)> = streamer
         .loaded
@@ -183,7 +173,11 @@ fn stream_wdl(
         .take(WDL_LOADS_PER_FRAME)
         .collect();
     for coords in missing {
-        let Some(tile) = streamer.wdl.tile_mesh(coords.0, coords.1) else {
+        let Some(tile) = streamer
+            .wdl
+            .as_ref()
+            .and_then(|wdl| wdl.tile_mesh(coords.0, coords.1))
+        else {
             continue;
         };
         let positions: Vec<[f32; 3]> = tile
@@ -218,7 +212,7 @@ fn stream_wdl(
     }
 }
 
-/// Leaving the world drops the ring; the parsed `.wdl` stays for `height_under`.
+/// Leaving the world drops the ring; the current map's optional parsed `.wdl` stays cached.
 fn release_wdl_ring(mut commands: Commands, streamer: Option<ResMut<WdlStreamer>>) {
     let Some(mut streamer) = streamer else { return };
     for (_, e) in streamer.loaded.drain() {

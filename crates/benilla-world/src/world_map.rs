@@ -11,13 +11,14 @@ use benilla_assets::{AssetSet, WorldAssets};
 /// The map before the server names one: Eastern Kingdoms (`Map.dbc` id 0).
 pub(crate) const DEFAULT_MAP_ID: u32 = 0;
 
-/// `$WOW_MAP`: the `Map.dbc` id a server-less run starts on (`0` Azeroth, `1` Kalimdor), unset
-/// giving [`DEFAULT_MAP_ID`]. A value that does not parse panics rather than falling back.
-fn map_id_from_env() -> u32 {
+/// `$WOW_MAP`: the `Map.dbc` id a server-less run starts on (`0` Azeroth, `1` Kalimdor,
+/// `530` Outland), unset giving [`DEFAULT_MAP_ID`]. A value that does not parse panics rather than
+/// falling back. Shared with `benilla-worldview` so its camera starts on the same map it streams.
+pub(crate) fn serverless_map_id() -> u32 {
     match std::env::var("WOW_MAP") {
         Err(_) => DEFAULT_MAP_ID,
         Ok(v) => v.trim().parse().unwrap_or_else(|_| {
-            panic!("WOW_MAP={v:?} is not a Map.dbc id — it takes a NUMBER (0 = Azeroth, 1 = Kalimdor), not a name")
+            panic!("WOW_MAP={v:?} is not a Map.dbc id — it takes a NUMBER (0 = Azeroth, 1 = Kalimdor, 530 = Outland), not a name")
         }),
     }
 }
@@ -32,7 +33,7 @@ pub struct CurrentMap(pub u32);
 #[derive(Message, Clone, Copy)]
 pub struct MapChange;
 
-/// The startup set the map catalog loads in, which the streamers' setup runs after.
+/// The startup set in which the map catalog and initial map resource are queued after assets open.
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct WorldMapLoad;
 
@@ -80,7 +81,7 @@ fn load_world_map(mut commands: Commands, world_assets: Option<Res<WorldAssets>>
             commands.insert_resource(MapCatalogRes(c));
             // `$WOW_MAP` picks a server-less run's map (a named capture scenario sets it before
             // `Startup`); a live session's `player::wire_in` overwrites it from the server.
-            let map = map_id_from_env();
+            let map = serverless_map_id();
             commands.insert_resource(CurrentMap(map));
         }
         Err(e) => error!("failed to load Map.dbc, cross-map teleport disabled: {e:#}"),

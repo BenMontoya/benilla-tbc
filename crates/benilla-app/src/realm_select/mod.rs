@@ -221,10 +221,9 @@ impl Realms {
     }
 }
 
-/// `GetRealmInfo`'s `realmDown`: flag bit 0x02, greyed and not enterable; the reference's
-/// auto-pick (`0x46ea20`) skips a realm on these low bits.
+/// A TBC realm is unavailable when realmd marks it offline or sets the explicit lock byte.
 pub(crate) fn is_down(realm: &RealmInfo) -> bool {
-    realm.flags & 0x02 != 0
+    realm.locked || realm.flags & 0x02 != 0
 }
 
 /// `GetRealmInfo`'s `invalidRealm`: flag bit 0x01, painted red but still enterable.
@@ -382,9 +381,11 @@ mod tests {
             population: pop,
             characters: chars,
             realm_type,
+            locked: false,
             flags,
             category,
             id: 0,
+            build: None,
         }
     }
 

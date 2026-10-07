@@ -3,7 +3,7 @@ use super::*;
 // The header through the event table at 0x114, as far as `parse_m2` walks.
 const HEADER_LEN: usize = 284;
 
-// v256 header offsets of the M2Arrays under test.
+// TBC v260 header offsets of the M2Arrays under test.
 const OFS_PLAYABLE_ANIM_LOOKUP: usize = 44;
 const OFS_TEX_ANIM: usize = 0x74;
 const OFS_TEX_UNIT_LOOKUP: usize = 0x9c;
@@ -15,11 +15,11 @@ const OFS_VIEWS: usize = 76;
 const OFS_ATTACHMENTS: usize = 260;
 const OFS_EVENTS: usize = 276;
 
-/// A v256 MD20 header with every M2Array empty; tests patch arrays with [`set_arr`].
+/// A TBC v260 MD20 header with every M2Array empty; tests patch arrays with [`set_arr`].
 fn header() -> Vec<u8> {
     let mut b = vec![0u8; HEADER_LEN];
     b[0..4].copy_from_slice(b"MD20");
-    b[4..8].copy_from_slice(&256u32.to_le_bytes());
+    b[4..8].copy_from_slice(&260u32.to_le_bytes());
     b
 }
 
@@ -54,7 +54,7 @@ fn minimal_header_parses_to_an_empty_model() {
     assert!(m.texture_transform_lookup.is_empty());
 }
 
-/// One v256 M2Track (stride 0x1c): interp@0, gseq@2, timestamps M2Array@0x0c, values M2Array@0x14.
+/// One TBC M2Track (stride 0x1c): interp@0, gseq@2, timestamps M2Array@0x0c, values M2Array@0x14.
 fn m2track(interp: u16, gseq: u16, ts: (u32, u32), vals: (u32, u32)) -> Vec<u8> {
     let mut t = vec![0u8; 0x1c];
     t[0..2].copy_from_slice(&interp.to_le_bytes());
@@ -189,10 +189,11 @@ fn playable_animation_lookup_decodes_low16_high16() {
 }
 
 fn bone_record(pivot: [f32; 3]) -> Vec<u8> {
-    let mut b = vec![0u8; 108];
-    b[96..100].copy_from_slice(&pivot[0].to_le_bytes());
-    b[100..104].copy_from_slice(&pivot[1].to_le_bytes());
-    b[104..108].copy_from_slice(&pivot[2].to_le_bytes());
+    let mut b = vec![0u8; 112];
+    // v260–v263: boneNameCRC occupies +0x0c; pivot is C3Vector at +0x64.
+    b[100..104].copy_from_slice(&pivot[0].to_le_bytes());
+    b[104..108].copy_from_slice(&pivot[1].to_le_bytes());
+    b[108..112].copy_from_slice(&pivot[2].to_le_bytes());
     b
 }
 
@@ -358,7 +359,7 @@ fn model_with_one_skin() -> Vec<u8> {
     let tri_ofs = b.len() as u32;
     b.extend([4u16, 5, 6].iter().flat_map(|v| v.to_le_bytes()));
     let sub_ofs = b.len() as u32;
-    let mut section = vec![0u8; 32]; // v256 (<260) M2SkinSection stride
+    let mut section = vec![0u8; 48]; // TBC v260–v263 M2SkinSection stride
     section[0..2].copy_from_slice(&7u16.to_le_bytes()); // skinSectionId
     section[8..10].copy_from_slice(&0u16.to_le_bytes()); // triangle_start
     section[10..12].copy_from_slice(&3u16.to_le_bytes()); // triangle_count

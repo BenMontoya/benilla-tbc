@@ -1,10 +1,10 @@
-//! SRP6 client and world-header crypto for 1.12.1 (build 5875): the client side of the realmd
+//! SRP6 client and world-header crypto for Burning Crusade 2.4.3 (build 8606): the client side of the realmd
 //! handshake and the world server's header obfuscation. Every byte array is little endian, as on
 //! the wire.
 //!
 //! # Encoding-unambiguous handshakes
 //!
-//! The 1.12.1 client hashes `A`, `B`, `K`, the salt and `M1` at their declared widths, zero-padded
+//! The 2.4.3 client hashes `A`, `B`, `K`, the salt and `M1` at their declared widths, zero-padded
 //! (`0x5d3650`); vmangos (`SHA1::Generator::UpdateData(BigNumber const&)`) and cmangos
 //! (`Sha1Hash::UpdateBigNumbers`) drop high-order zero bytes, so a value with one hashes
 //! differently and realmd answers `WOW_FAIL_UNKNOWN_ACCOUNT` (0x04) to a correct password. The low
@@ -19,9 +19,9 @@ use num_bigint::BigInt;
 use rand::{thread_rng, RngCore};
 use sha1::{Digest, Sha1};
 
-pub mod vanilla_header;
+pub mod header;
 
-pub use vanilla_header::{DecrypterHalf, EncrypterHalf, HeaderCrypto, ProofSeed};
+pub use header::{DecrypterHalf, EncrypterHalf, HeaderCrypto, ProofSeed};
 
 /// Session-key length in bytes: two interleaved SHA-1 digests.
 pub const SESSION_KEY_LENGTH: usize = 40;
@@ -70,7 +70,7 @@ fn is_width_stable(little_endian: &[u8]) -> bool {
 
 // --- normalized string ---------------------------------------------------------------------------
 
-/// A username or password as the 1.12 client normalises it: ASCII without control characters,
+/// A username or password as the 2.4.3 client normalises it: ASCII without control characters,
 /// uppercased, 1..=16 bytes. SRP6 hashes this form, and the account name goes on the wire in it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NormalizedString {

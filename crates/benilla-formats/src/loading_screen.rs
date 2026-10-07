@@ -1,4 +1,4 @@
-//! `LoadingScreens.dbc`: a `Map.dbc` `LoadingScreenID` (column 38) → the loading art's BLP path
+//! `LoadingScreens.dbc`: a 2.4.3 `Map.dbc` `LoadingScreenID` (field 62) → the loading art's BLP path
 //! (column 2). The open world has one per continent (3 Kalimdor, 4 Eastern Kingdoms); the other
 //! rows are per instance.
 
@@ -69,6 +69,7 @@ mod tests {
 
         assert_eq!(maps.loading_screen_id(0), Some(4), "Azeroth → 4");
         assert_eq!(maps.loading_screen_id(1), Some(3), "Kalimdor → 3");
+        assert_eq!(maps.loading_screen_id(530), Some(198), "Outland → 198");
 
         assert_eq!(
             screens.path(4),
@@ -77,6 +78,10 @@ mod tests {
         assert_eq!(
             screens.path(3),
             Some("Interface\\Glues\\LoadingScreens\\LoadScreenKalimdor.blp")
+        );
+        assert_eq!(
+            screens.path(198),
+            Some("Interface\\Glues\\LoadingScreens\\LoadScreenOutland.blp")
         );
 
         let resolve = |map_id| {
@@ -87,5 +92,6 @@ mod tests {
             .unwrap()
             .ends_with("LoadScreenEasternKingdom.blp"));
         assert!(resolve(1).unwrap().ends_with("LoadScreenKalimdor.blp"));
+        assert!(resolve(530).unwrap().ends_with("LoadScreenOutland.blp"));
     }
 }

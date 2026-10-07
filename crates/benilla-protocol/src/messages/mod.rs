@@ -308,8 +308,8 @@ pub const LANGUAGE_ADDON: u32 = 0xFFFF_FFFF;
 /// Language Orcish, the rest 668 Language Common (`playercreateinfo_spell`).
 pub fn faction_language(race: u8) -> u32 {
     match race {
-        2 | 5 | 6 | 8 => LANGUAGE_ORCISH, // orc, undead, tauren, troll
-        _ => LANGUAGE_COMMON,             // human, dwarf, night elf, gnome
+        2 | 5 | 6 | 8 | 10 => LANGUAGE_ORCISH, // Horde, including Blood Elves
+        _ => LANGUAGE_COMMON,             // Alliance, including Draenei
     }
 }
 /// `ChatMsg` values (vmangos `SharedDefines.h:1191-1301`) as `CMSG_MESSAGECHAT`'s `u32` `type`

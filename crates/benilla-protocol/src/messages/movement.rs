@@ -2,15 +2,15 @@
 
 use std::io::{self, Read};
 
-use crate::wire::{read_f32_le, read_u32_le, read_u64_le, Vector3d};
+use crate::wire::{read_f32_le, read_u32_le, read_u64_le, read_u8, Vector3d};
 
-// MovementFlags bits (vmangos `MovementInfo.h`). ON_TRANSPORT is 1.12's 0x0200_0000
-// (`MovementInfo.h:56`), not TBC's 0x200, which 1.12 names `MOVEFLAG_UNUSED10`.
-pub(super) const MOVEMENT_FLAG_ON_TRANSPORT: u32 = 0x0200_0000;
-pub(super) const MOVEMENT_FLAG_JUMPING: u32 = 0x2000;
-pub(super) const MOVEMENT_FLAG_SWIMMING: u32 = 0x20_0000;
-pub(super) const MOVEMENT_FLAG_SPLINE_ENABLED: u32 = 0x40_0000;
-pub(super) const MOVEMENT_FLAG_SPLINE_ELEVATION: u32 = 0x400_0000;
+// Burning Crusade 2.4.3 MovementFlags, shared with the LIVING create-block decoder.
+pub(super) const MOVEMENT_FLAG_ON_TRANSPORT: u32 = 0x0000_0200;
+pub(super) const MOVEMENT_FLAG_FALLING: u32 = 0x0000_1000;
+pub(super) const MOVEMENT_FLAG_SWIMMING: u32 = 0x0020_0000;
+pub(super) const MOVEMENT_FLAG_FLYING2: u32 = 0x0200_0000;
+pub(super) const MOVEMENT_FLAG_SPLINE_ELEVATION: u32 = 0x0400_0000;
+pub(super) const MOVEMENT_FLAG_SPLINE_ENABLED: u32 = 0x0800_0000;
 
 /// `MSG_MOVE_TIME_SKIPPED` inbound: a packed guid and the ms that mover's client skipped
 /// (reference handler `0x603b40`; vmangos `MovementHandler.cpp:1005-1011`). Our own send uses a
@@ -21,31 +21,32 @@ pub(super) fn read_move_time_skipped(r: &mut &[u8]) -> io::Result<(u64, u32)> {
     Ok((guid, lag_ms))
 }
 
-/// vmangos `MovementInfo::Read` order: flags, time, position, facing, the transport pose if
-/// `ON_TRANSPORT` (1.12 has no transport time), the swim pitch if `SWIMMING`, `u32` fall time, the
-/// jump tail if `JUMPING`, then a spline-elevation `f32` if `SPLINE_ELEVATION`, read and dropped.
+/// TBC 2.4.3 movement wire order: 32-bit flags, secondary flags byte, time, pose, optional
+/// transport pose and time, optional swim/flight pitch, fall time, optional falling launch quad,
+/// and optional spline elevation. This decoder is shared by player relays and speed-change moves.
 pub(super) fn read_movement_info(r: &mut impl Read) -> io::Result<MovementInfo> {
     let flags = read_u32_le(r)?;
+    let flags2 = read_u8(r)?;
     let timestamp = read_u32_le(r)?;
     let position = Vector3d::read(r)?;
     let orientation = read_f32_le(r)?;
     let transport = if flags & MOVEMENT_FLAG_ON_TRANSPORT != 0 {
         Some(TransportPose {
-            // A full u64, not packed (vmangos `ObjectGuid.cpp:180`, `buf.read<uint64>()`).
             guid: read_u64_le(r)?,
             pos: Vector3d::read(r)?,
             orientation: read_f32_le(r)?,
+            time: read_u32_le(r)?,
         })
     } else {
         None
     };
-    let pitch = if flags & MOVEMENT_FLAG_SWIMMING != 0 {
+    let pitch = if flags & (MOVEMENT_FLAG_SWIMMING | MOVEMENT_FLAG_FLYING2) != 0 {
         read_f32_le(r)?
     } else {
         0.0
     };
     let fall_time = read_u32_le(r)?;
-    let jump = if flags & MOVEMENT_FLAG_JUMPING != 0 {
+    let jump = if flags & MOVEMENT_FLAG_FALLING != 0 {
         Some(JumpInfo {
             zspeed: read_f32_le(r)?,
             cos_angle: read_f32_le(r)?,
@@ -55,11 +56,14 @@ pub(super) fn read_movement_info(r: &mut impl Read) -> io::Result<MovementInfo> 
     } else {
         None
     };
-    if flags & MOVEMENT_FLAG_SPLINE_ELEVATION != 0 {
-        let _ = read_f32_le(r)?;
-    }
+    let spline_elevation = if flags & MOVEMENT_FLAG_SPLINE_ELEVATION != 0 {
+        read_f32_le(r)?
+    } else {
+        0.0
+    };
     Ok(MovementInfo {
         flags,
+        flags2,
         timestamp,
         position,
         orientation,
@@ -67,6 +71,7 @@ pub(super) fn read_movement_info(r: &mut impl Read) -> io::Result<MovementInfo> 
         pitch,
         fall_time,
         jump,
+        spline_elevation,
     })
 }
 
@@ -81,6 +86,8 @@ pub enum SpeedKind {
     RunBack,
     Swim,
     SwimBack,
+    Flight,
+    FlightBack,
     TurnRate,
 }
 
@@ -94,6 +101,8 @@ impl SpeedKind {
             SpeedKind::RunBack => opcode::CMSG_FORCE_RUN_BACK_SPEED_CHANGE_ACK,
             SpeedKind::Swim => opcode::CMSG_FORCE_SWIM_SPEED_CHANGE_ACK,
             SpeedKind::SwimBack => opcode::CMSG_FORCE_SWIM_BACK_SPEED_CHANGE_ACK,
+            SpeedKind::Flight => opcode::CMSG_FORCE_FLIGHT_SPEED_CHANGE_ACK,
+            SpeedKind::FlightBack => opcode::CMSG_FORCE_FLIGHT_BACK_SPEED_CHANGE_ACK,
             SpeedKind::TurnRate => opcode::CMSG_FORCE_TURN_RATE_CHANGE_ACK,
         }
     }
@@ -116,7 +125,7 @@ impl MoveMode {
     /// This mode's `MOVEMENTFLAGS` bit.
     pub fn flag(self) -> u32 {
         match self {
-            MoveMode::Root => 0x0000_1000,
+            MoveMode::Root => 0x0000_0800,
             MoveMode::WaterWalk => 0x1000_0000,
             MoveMode::FeatherFall => 0x2000_0000,
             MoveMode::Hover => 0x4000_0000,
@@ -164,7 +173,7 @@ impl SplineMode {
     /// This mode's `MOVEMENTFLAGS` bit, in the same word as [`MoveMode::flag`].
     pub fn flag(self) -> u32 {
         match self {
-            SplineMode::Root => 0x0000_1000,
+            SplineMode::Root => 0x0000_0800,
             SplineMode::WaterWalk => 0x1000_0000,
             SplineMode::FeatherFall => 0x2000_0000,
             SplineMode::Hover => 0x4000_0000,
@@ -209,7 +218,7 @@ impl RelayVerb {
     }
 }
 
-/// The `JUMPING` tail: `zspeed, cosAngle, sinAngle, xyspeed`, cos before sin (vmangos
+/// The TBC `FALLING` tail: `zspeed, cosAngle, sinAngle, xyspeed`, cos before sin (vmangos
 /// `MovementInfo::Read`). The launch is `(cos, sin) * xy_speed` in world XY, frozen at take-off,
 /// so a receiver can replay the arc under `g = 19.291105` (vmangos `ExtrapolateMovement`).
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -223,19 +232,22 @@ pub struct JumpInfo {
     pub xy_speed: f32,
 }
 
-/// The `ON_TRANSPORT` tail of `MovementInfo` and of a `LIVING` block: a full `u64` transport guid,
-/// then position and facing in the transport's own frame (vmangos `MovementInfo::Read`).
+/// The TBC transport tail: a full `u64` guid, local position/facing and transport time.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TransportPose {
     /// The transport GameObject's guid, `HIGH_MO_TRANSPORT` or `HIGH_TRANSPORT`.
     pub guid: u64,
     pub pos: Vector3d,
     pub orientation: f32,
+    /// TBC adds the transport's own time, after the deck-local facing.
+    pub time: u32,
 }
 
 /// The body of every `MSG_MOVE_*`, in both directions, and of the teleport ack.
 pub struct MovementInfo {
     pub flags: u32,
+    /// The 2.4.3 secondary movement flags byte.
+    pub flags2: u8,
     pub timestamp: u32,
     pub position: Vector3d,
     pub orientation: f32,
@@ -245,13 +257,16 @@ pub struct MovementInfo {
     pub pitch: f32,
     /// Milliseconds airborne, a `u32` (vmangos `MovementInfo::fallTime`): the jump arc's clock.
     pub fall_time: u32,
-    /// `Some` iff `JUMPING` is set: the launch an observer replays the arc from.
+    /// `Some` iff TBC `FALLING` is set: the launch an observer replays the arc from.
     pub jump: Option<JumpInfo>,
+    /// TBC's trailing spline elevation, conditional on the corresponding movement flag.
+    pub spline_elevation: f32,
 }
 
 impl MovementInfo {
     pub(super) fn write(&self, w: &mut Vec<u8>) {
         w.extend_from_slice(&self.flags.to_le_bytes());
+        w.push(self.flags2);
         w.extend_from_slice(&self.timestamp.to_le_bytes());
         w.extend_from_slice(&self.position.x.to_le_bytes());
         w.extend_from_slice(&self.position.y.to_le_bytes());
@@ -267,23 +282,28 @@ impl MovementInfo {
                     z: 0.0,
                 },
                 orientation: 0.0,
+                time: 0,
             });
             w.extend_from_slice(&t.guid.to_le_bytes());
             w.extend_from_slice(&t.pos.x.to_le_bytes());
             w.extend_from_slice(&t.pos.y.to_le_bytes());
             w.extend_from_slice(&t.pos.z.to_le_bytes());
             w.extend_from_slice(&t.orientation.to_le_bytes());
+            w.extend_from_slice(&t.time.to_le_bytes());
         }
-        if self.flags & MOVEMENT_FLAG_SWIMMING != 0 {
+        if self.flags & (MOVEMENT_FLAG_SWIMMING | MOVEMENT_FLAG_FLYING2) != 0 {
             w.extend_from_slice(&self.pitch.to_le_bytes());
         }
         w.extend_from_slice(&self.fall_time.to_le_bytes());
-        if self.flags & MOVEMENT_FLAG_JUMPING != 0 {
+        if self.flags & MOVEMENT_FLAG_FALLING != 0 {
             let j = self.jump.unwrap_or_default();
             w.extend_from_slice(&j.zspeed.to_le_bytes());
             w.extend_from_slice(&j.cos_angle.to_le_bytes());
             w.extend_from_slice(&j.sin_angle.to_le_bytes());
             w.extend_from_slice(&j.xy_speed.to_le_bytes());
+        }
+        if self.flags & MOVEMENT_FLAG_SPLINE_ELEVATION != 0 {
+            w.extend_from_slice(&self.spline_elevation.to_le_bytes());
         }
     }
 }
@@ -296,6 +316,7 @@ mod tests {
     fn info(flags: u32) -> MovementInfo {
         MovementInfo {
             flags,
+            flags2: 0,
             timestamp: 12345,
             position: Vector3d {
                 x: 1.0,
@@ -307,6 +328,7 @@ mod tests {
             pitch: -0.7,
             fall_time: 42,
             jump: None,
+            spline_elevation: 0.0,
         }
     }
 
@@ -335,6 +357,7 @@ mod tests {
                 z: 8.0,
             },
             orientation: 1.5,
+            time: 0,
         });
         let mut bytes = Vec::new();
         riding.write(&mut bytes);
@@ -342,8 +365,8 @@ mod tests {
         info(0).write(&mut walking);
         assert_eq!(
             bytes.len() - walking.len(),
-            24,
-            "the transport tail adds exactly u64 + 4×f32"
+            28,
+            "the transport tail adds u64 + 4×f32 + u32 time"
         );
         let back = read_movement_info(&mut &bytes[..]).expect("parse");
         let t = back.transport.expect("transport pose survives");

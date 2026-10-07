@@ -10,12 +10,12 @@ use std::io::Cursor;
 use crate::Chain;
 use anyhow::{Context, Result};
 use benilla_adt::{parse_adt, CombinedAlphaMap, ParsedAdt};
-use benilla_wdt::{version::WowVersion, WdtFile, WdtReader};
+use benilla_wdt::{WdtFile, WdtReader};
 
-/// Edge length (texels) of a chunk's combined alpha map (always 64×64 in vanilla).
+/// Edge length (texels) of a chunk's combined alpha map (64×64 in the 2.4.3 terrain format).
 pub const ALPHA_MAP_SIZE: u32 = 64;
 
-/// Edge length (texels) of a chunk's MCSH shadow map (always 64×64 in vanilla).
+/// Edge length (texels) of a chunk's MCSH shadow map (64×64 in the 2.4.3 terrain format).
 pub const SHADOW_MAP_SIZE: u32 = 64;
 
 /// Yards per ADT tile (1/64 of a map edge).
@@ -292,11 +292,11 @@ pub(crate) fn snap_to_lattice(coord: f32) -> f32 {
     (map_center - idx * unit) as f32
 }
 
-/// Build per-chunk meshes from one vanilla (monolithic) ADT file's bytes.
+/// Build per-chunk meshes from one 2.4.3 monolithic ADT file's bytes.
 pub fn adt_to_tile_mesh(adt_bytes: &[u8]) -> Result<TileMesh> {
     let mut cursor = Cursor::new(adt_bytes);
     let parsed = parse_adt(&mut cursor).map_err(|e| anyhow::anyhow!("parsing ADT: {e}"))?;
-    // A vanilla ADT is always one monolithic root.
+    // A 2.4.3 ADT is one monolithic root.
     let ParsedAdt::Root(root) = parsed;
 
     let mut chunks = Vec::new();
@@ -355,7 +355,7 @@ pub fn adt_to_tile_mesh(adt_bytes: &[u8]) -> Result<TileMesh> {
         }
 
         // Four fan triangles per cell, CCW from above (front face up in Bevy under the det +1
-        // transform); a set hole bit drops its 2×2 block, and 1.12 has no high-res holes.
+        // transform); a set low-resolution hole bit drops its 2×2 block.
         let holes = mcnk.header.holes_low_res;
         let mut indices = Vec::with_capacity(8 * 8 * 12);
         for row in 0..8u32 {
@@ -397,7 +397,8 @@ pub fn adt_to_tile_mesh(adt_bytes: &[u8]) -> Result<TileMesh> {
         let layer_effect_ids: Vec<u32> = layers.iter().map(|(_, e)| *e).collect();
         let base_texture = layer_textures.first().cloned();
 
-        // Layers 1..3 into one RGBA map; 1.12 alpha is 4-bit, last row and column duplicated.
+        // Layers 1..3 into one RGBA map. Stock 2.4.3 multi-layer MCAL uses 2048 packed bytes per
+        // extra layer (4-bit alpha) and the pre-Wrath edge fix.
         let alpha_map = (layer_textures.len() > 1).then(|| {
             CombinedAlphaMap::new(
                 mcnk, /* has_big_alpha */ false, /* fix_alpha */ true,
@@ -485,7 +486,7 @@ pub fn adt_to_tile_mesh(adt_bytes: &[u8]) -> Result<TileMesh> {
         })
         .collect();
 
-    // MODF takes the same transform; its scale is unused in 1.12.
+    // MODF takes the same transform; this pre-Wrath record has no placement scale.
     let wmos = root
         .wmo_placements
         .iter()
@@ -513,13 +514,13 @@ pub fn adt_to_tile_mesh(adt_bytes: &[u8]) -> Result<TileMesh> {
     })
 }
 
-/// Read a map's WDT from the chain and parse it (vanilla/Classic layout).
+/// Read a map's 2.4.3 WDT from the chain and parse it.
 fn read_wdt(chain: &mut Chain, map: &str) -> Result<WdtFile> {
     let path = format!("World\\Maps\\{map}\\{map}.wdt");
     let bytes = chain
         .read_file(&path)
         .with_context(|| format!("reading {path}"))?;
-    WdtReader::new(Cursor::new(bytes), WowVersion::Classic)
+    WdtReader::new(Cursor::new(bytes))
         .read()
         .map_err(|e| anyhow::anyhow!("parsing WDT {path}: {e}"))
 }

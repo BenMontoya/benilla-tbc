@@ -1,14 +1,15 @@
-//! Integration tests over the patch chain of a real 1.12.1 install.
+//! Integration tests over the patch chain of a real Burning Crusade 2.4.3 install.
 
 use benilla_formats::{open_chain, Chain};
 
 #[test]
-fn reads_spell_dbc_from_vanilla_chain() {
+fn reads_spell_dbc_from_tbc_chain() {
     let data = benilla_formats::wow_data_or_skip!();
 
-    let mut chain = open_chain(&data).expect("open vanilla patch chain");
+    let mut chain = open_chain(&data).expect("open 2.4.3 patch chain");
 
-    // Spell.dbc lives in patch.MPQ; reading by name must resolve through the chain.
+    // Final Spell.dbc lives in patch-enUS-2.MPQ; reading by name must resolve through the full
+    // global + locale chain.
     let bytes = chain
         .read_file("DBFilesClient/Spell.dbc")
         .expect("read DBFilesClient/Spell.dbc");
@@ -25,8 +26,9 @@ fn reads_spell_dbc_from_vanilla_chain() {
 fn resolves_and_reads_across_archive_types() {
     let data = benilla_formats::wow_data_or_skip!();
 
-    // A DBC, a UI BLP, and an M2 from a base archive with no listfile, found by name hash.
-    let chain = open_chain(&data).expect("open vanilla patch chain");
+    // Exercise the mounted archive classes: final locale-patch DBCs, a locale-patch UI texture,
+    // and an M2 inherited from common.MPQ. All resolve by the same case/slash-insensitive hash.
+    let chain = open_chain(&data).expect("open 2.4.3 patch chain");
 
     for path in [
         "DBFilesClient/Spell.dbc",
@@ -44,9 +46,110 @@ fn resolves_and_reads_across_archive_types() {
 }
 
 #[test]
+fn gate_a_resolves_and_parses_the_shattrath_data_slice() {
+    use std::io::Cursor;
+
+    let data = benilla_formats::wow_data_or_skip!();
+    let mut chain = open_chain(&data).expect("open 2.4.3 patch chain");
+    let winner = |path: &str| {
+        chain
+            .find_file_archive(path)
+            .and_then(|p| p.file_name())
+            .and_then(|p| p.to_str())
+            .map(str::to_owned)
+            .unwrap_or_else(|| panic!("no archive wins {path}"))
+    };
+
+    assert_eq!(winner("DBFilesClient\\Map.dbc"), "patch-enUS-2.MPQ");
+    assert_eq!(
+        winner("Interface\\FrameXML\\FrameXML.toc"),
+        "patch-enUS.MPQ"
+    );
+    assert_eq!(
+        winner("World\\Maps\\Expansion01\\Expansion01.wdt"),
+        "patch.MPQ"
+    );
+    assert_eq!(
+        winner("World\\Maps\\Expansion01\\Expansion01_21_35.adt"),
+        "patch.MPQ"
+    );
+    assert_eq!(
+        winner("World\\wmo\\Outland\\Terokkar\\ShattrathCity.wmo"),
+        "patch.MPQ"
+    );
+    assert_eq!(
+        winner("World\\Expansion01\\Doodads\\Terokkar\\Trees\\TerokkarTreeLarge.m2"),
+        "expansion.MPQ"
+    );
+    assert_eq!(
+        winner("Tileset\\Expansion01\\Terokkar\\TerokkarForest_Crystal.blp"),
+        "expansion.MPQ"
+    );
+
+    let framexml = chain
+        .read("Interface\\FrameXML\\FrameXML.toc")
+        .expect("read final FrameXML.toc");
+    assert!(
+        String::from_utf8_lossy(&framexml).contains("## Interface: 20400"),
+        "locale patch precedence must expose the final 2.4.3 interface metadata"
+    );
+
+    let maps = benilla_formats::load_map_catalog(&mut chain).expect("load final Map.dbc");
+    assert_eq!(maps.directory(530), Some("Expansion01"));
+
+    let wdt_bytes = chain
+        .read("World\\Maps\\Expansion01\\Expansion01.wdt")
+        .expect("read Expansion01.wdt");
+    let wdt = benilla_formats::WdtReader::new(Cursor::new(wdt_bytes))
+        .read()
+        .expect("parse TBC Expansion01.wdt");
+    let authored_tiles = (0..64)
+        .flat_map(|y| (0..64).map(move |x| (x, y)))
+        .filter(|&(x, y)| wdt.get_tile(x, y).is_some_and(|t| t.has_adt))
+        .count();
+    assert_eq!(authored_tiles, 776, "Expansion01 authored ADT tiles");
+
+    let tile = benilla_formats::load_tile_mesh(&mut chain, "Expansion01", 21, 35)
+        .expect("parse patched Shattrath ADT");
+    assert_eq!(tile.chunks.len(), 256);
+    assert_eq!(tile.doodads.len(), 26);
+    assert_eq!(tile.wmos.len(), 2);
+    assert!(
+        tile.wmos
+            .iter()
+            .any(|w| w.model.eq_ignore_ascii_case("World\\wmo\\Outland\\Terokkar\\ShattrathCity.wmo")),
+        "the anchor tile places ShattrathCity.wmo"
+    );
+
+    let root_bytes = chain
+        .read("World\\wmo\\Outland\\Terokkar\\ShattrathCity.wmo")
+        .expect("read ShattrathCity.wmo");
+    let root = benilla_formats::parse_wmo_root(&root_bytes).expect("parse ShattrathCity root");
+    assert_eq!(root.group_count(), 29);
+
+    let tree_path = "World\\Expansion01\\Doodads\\Terokkar\\Trees\\TerokkarTreeLarge.m2";
+    let tree_bytes = chain.read(tree_path).expect("read TerokkarTreeLarge.m2");
+    assert_eq!(&tree_bytes[0..4], b"MD20");
+    assert_eq!(u32::from_le_bytes(tree_bytes[4..8].try_into().unwrap()), 260);
+    assert!(
+        !benilla_formats::load_m2_mesh(&mut chain, tree_path)
+            .expect("parse Terokkar tree M2")
+            .is_empty(),
+        "representative Outland M2 has render geometry"
+    );
+
+    let blp = benilla_formats::read_texture_native_chain(
+        &mut chain,
+        "Tileset\\Expansion01\\Terokkar\\TerokkarForest_Crystal.blp",
+    )
+    .expect("decode representative Outland BLP2");
+    assert_eq!((blp.width, blp.height), (256, 256));
+}
+
+#[test]
 fn culls_constant_zero_alpha_m2_batches() {
     let data = benilla_formats::wow_data_or_skip!();
-    let mut chain = open_chain(&data).expect("open vanilla patch chain");
+    let mut chain = open_chain(&data).expect("open 2.4.3 patch chain");
 
     // The embers' only batch is an 84-yd box with a constant 0.0 transparency weight, an emitter
     // anchor the reference never draws: it culls a batch at alpha <= 0.
@@ -73,7 +176,7 @@ fn culls_constant_zero_alpha_m2_batches() {
 #[test]
 fn trigger_creature_models_carry_no_render_geometry() {
     let data = benilla_formats::wow_data_or_skip!();
-    let mut chain = open_chain(&data).expect("open vanilla patch chain");
+    let mut chain = open_chain(&data).expect("open 2.4.3 patch chain");
 
     // A trigger creature hides by its model drawing nothing: the stalker and the portal author no
     // vertices, and NoName's one batch has a constant 0.0 transparency track.
@@ -102,7 +205,7 @@ fn trigger_creature_models_carry_no_render_geometry() {
 #[test]
 fn the_trigger_creature_still_carries_the_attachments_its_visible_self_rides() {
     let data = benilla_formats::wow_data_or_skip!();
-    let mut chain = open_chain(&data).expect("open vanilla patch chain");
+    let mut chain = open_chain(&data).expect("open 2.4.3 patch chain");
 
     // The Naxxramas weapon mobs (display 15294) are this body, seen only through its attachments:
     // the weapon on HandRight, the name plate on PlayerName.
@@ -140,7 +243,7 @@ fn the_trigger_creature_still_carries_the_attachments_its_visible_self_rides() {
 #[test]
 fn suppresses_white1_invisible_trap_placeholder() {
     let data = benilla_formats::wow_data_or_skip!();
-    let mut chain = open_chain(&data).expect("open vanilla patch chain");
+    let mut chain = open_chain(&data).expect("open 2.4.3 patch chain");
 
     // GameObject display 1287: a flat opaque quad on `WHITE1.BLP` that the reference draws at
     // per-instance alpha ~0, so the loader drops it.
@@ -171,7 +274,7 @@ fn suppresses_white1_invisible_trap_placeholder() {
 fn decodes_a_blp_icon_to_png() {
     let data = benilla_formats::wow_data_or_skip!();
 
-    let mut chain = open_chain(&data).expect("open vanilla patch chain");
+    let mut chain = open_chain(&data).expect("open 2.4.3 patch chain");
     let bytes = chain
         .read_file("Interface/Icons/Spell_Holy_ArcaneIntellect.blp")
         .expect("read spell icon BLP");
@@ -190,7 +293,7 @@ fn decodes_a_blp_icon_to_png() {
 fn dumps_taxinodes_to_csv() {
     let data = benilla_formats::wow_data_or_skip!();
 
-    let mut chain = open_chain(&data).expect("open vanilla patch chain");
+    let mut chain = open_chain(&data).expect("open 2.4.3 patch chain");
     let bytes = chain
         .read_file("DBFilesClient/TaxiNodes.dbc")
         .expect("read TaxiNodes.dbc");
@@ -199,7 +302,7 @@ fn dumps_taxinodes_to_csv() {
     let (records, fields) =
         benilla_formats::dbc_to_csv(&bytes, "TaxiNodes.dbc", &out).expect("dbc->csv");
 
-    assert_eq!((records, fields), (85, 16), "vanilla TaxiNodes.dbc shape");
+    assert_eq!((records, fields), (189, 24), "2.4.3 TaxiNodes.dbc shape");
     let csv = std::fs::read_to_string(&out).expect("read csv");
     assert!(
         csv.lines()
@@ -209,7 +312,7 @@ fn dumps_taxinodes_to_csv() {
         "schema-derived header"
     );
     assert!(csv.contains("Stormwind"), "expected a known flight node");
-    assert_eq!(csv.lines().count(), 86, "85 records + 1 header row");
+    assert_eq!(csv.lines().count(), 190, "189 records + 1 header row");
     let _ = std::fs::remove_file(&out);
 }
 
@@ -217,7 +320,7 @@ fn dumps_taxinodes_to_csv() {
 fn meshes_an_elwynn_terrain_tile() {
     let data = benilla_formats::wow_data_or_skip!();
 
-    let mut chain = open_chain(&data).expect("open vanilla patch chain");
+    let mut chain = open_chain(&data).expect("open 2.4.3 patch chain");
     let (tx, ty) = benilla_formats::find_tile_near(&mut chain, "Azeroth", -8840.56, 489.7)
         .expect("find an Elwynn tile");
     let tile =
@@ -325,7 +428,7 @@ fn meshes_an_elwynn_terrain_tile() {
 fn terrain_chunks_carry_unit_upward_mcnr_normals() {
     let data = benilla_formats::wow_data_or_skip!();
 
-    let mut chain = open_chain(&data).expect("open vanilla patch chain");
+    let mut chain = open_chain(&data).expect("open 2.4.3 patch chain");
     let (tx, ty) = benilla_formats::find_tile_near(&mut chain, "Azeroth", -8840.56, 489.7)
         .expect("find an Elwynn tile");
     let tile =
@@ -369,7 +472,7 @@ fn terrain_chunks_carry_unit_upward_mcnr_normals() {
 fn terrain_fans_wind_ccw_seen_from_above() {
     let data = benilla_formats::wow_data_or_skip!();
 
-    let mut chain = open_chain(&data).expect("open vanilla patch chain");
+    let mut chain = open_chain(&data).expect("open 2.4.3 patch chain");
     let (tx, ty) = benilla_formats::find_tile_near(&mut chain, "Azeroth", -8840.56, 489.7)
         .expect("find an Elwynn tile");
     let tile =
@@ -423,7 +526,7 @@ fn terrain_fans_wind_ccw_seen_from_above() {
 fn terrain_is_watertight_at_chunk_seams() {
     let data = benilla_formats::wow_data_or_skip!();
 
-    let mut chain = open_chain(&data).expect("open vanilla patch chain");
+    let mut chain = open_chain(&data).expect("open 2.4.3 patch chain");
     let (tx, ty) = benilla_formats::find_tile_near(&mut chain, "Azeroth", -8840.56, 489.7)
         .expect("find an Elwynn tile");
     let tile =
@@ -471,7 +574,7 @@ fn terrain_is_watertight_at_chunk_seams() {
 fn loads_a_block_of_elwynn_tiles() {
     let data = benilla_formats::wow_data_or_skip!();
 
-    let mut chain = open_chain(&data).expect("open vanilla patch chain");
+    let mut chain = open_chain(&data).expect("open 2.4.3 patch chain");
     let tiles = benilla_formats::load_tiles_around(&mut chain, "Azeroth", -8840.56, 489.7, 1)
         .expect("load tile block");
 
@@ -490,7 +593,7 @@ fn loads_a_block_of_elwynn_tiles() {
 fn reads_and_decodes_a_terrain_texture() {
     let data = benilla_formats::wow_data_or_skip!();
 
-    let mut chain = open_chain(&data).expect("open vanilla patch chain");
+    let mut chain = open_chain(&data).expect("open 2.4.3 patch chain");
     let (tx, ty) = benilla_formats::find_tile_near(&mut chain, "Azeroth", -8840.56, 489.7)
         .expect("find a tile");
     let tile =
@@ -512,12 +615,12 @@ fn reads_and_decodes_a_terrain_texture() {
 fn resolves_creature_models_from_dbcs() {
     let data = benilla_formats::wow_data_or_skip!();
 
-    let mut chain = open_chain(&data).expect("open vanilla patch chain");
+    let mut chain = open_chain(&data).expect("open 2.4.3 patch chain");
     let catalog =
         benilla_formats::load_creature_catalog(&mut chain).expect("load creature display catalog");
     assert!(
         catalog.len() > 1000,
-        "vanilla has thousands of creature displays, got {}",
+        "2.4.3 has thousands of creature displays, got {}",
         catalog.len()
     );
 
@@ -556,12 +659,12 @@ fn resolves_creature_models_from_dbcs() {
 fn resolves_gameobject_models_from_dbc() {
     let data = benilla_formats::wow_data_or_skip!();
 
-    let mut chain = open_chain(&data).expect("open vanilla patch chain");
+    let mut chain = open_chain(&data).expect("open 2.4.3 patch chain");
     let catalog = benilla_formats::load_gameobject_catalog(&mut chain)
         .expect("load gameobject display catalog");
     assert!(
         catalog.len() > 500,
-        "vanilla has many GameObject displays, got {}",
+        "2.4.3 has many GameObject displays, got {}",
         catalog.len()
     );
 
@@ -588,7 +691,7 @@ fn resolves_gameobject_models_from_dbc() {
 fn loads_classic_models_with_cosmetic_chunks() {
     let data = benilla_formats::wow_data_or_skip!();
 
-    let mut chain = open_chain(&data).expect("open vanilla patch chain");
+    let mut chain = open_chain(&data).expect("open 2.4.3 patch chain");
     // Their particle, light and texture-animation chunks are malformed; the geometry still loads.
     for path in [
         "Creature\\Kobold\\Kobold.mdx",
@@ -618,7 +721,7 @@ fn span3(ps: &[[f32; 3]]) -> [f32; 3] {
 #[test]
 fn decodes_m2_collision_hulls() {
     let data = benilla_formats::wow_data_or_skip!();
-    let mut chain = open_chain(&data).expect("open vanilla patch chain");
+    let mut chain = open_chain(&data).expect("open 2.4.3 patch chain");
 
     // Counts read off the raw bytes. The hull is a coarse trunk, far smaller than the canopy.
     let pine = benilla_formats::load_m2_collision_hull(
@@ -679,7 +782,7 @@ fn decodes_m2_collision_hulls() {
 #[test]
 fn filters_wmo_collidable_triangles_by_mopy() {
     let data = benilla_formats::wow_data_or_skip!();
-    let mut chain = open_chain(&data).expect("open vanilla patch chain");
+    let mut chain = open_chain(&data).expect("open 2.4.3 patch chain");
 
     // The reference's walking query skips a face iff `MOPY.flags & 0x04` (DETAIL): reject mask
     // `0x84`, tested at its box-query leaf `0x6bca50` (from `0x6b91c0`, `0x6bc1c0`).
@@ -717,7 +820,7 @@ fn filters_wmo_collidable_triangles_by_mopy() {
 #[test]
 fn derives_the_wmo_window_glass_law_from_momt() {
     let data = benilla_formats::wow_data_or_skip!();
-    let mut chain = open_chain(&data).expect("open vanilla patch chain");
+    let mut chain = open_chain(&data).expect("open 2.4.3 patch chain");
 
     // The MOMT glass mechanisms: the exterior UNLIT drawer `0x6b4f10`, the interior WINDOW drawer
     // `0x6b5190` and the SIDN night ramp `0x6b4090`. The inn's mat 5 is flags 0x11 (UNLIT, SIDN)
@@ -778,7 +881,7 @@ fn derives_the_wmo_window_glass_law_from_momt() {
 #[test]
 fn reads_authentic_atmosphere_from_light_dbc() {
     let data = benilla_formats::wow_data_or_skip!();
-    let mut chain = open_chain(&data).expect("open vanilla patch chain");
+    let mut chain = open_chain(&data).expect("open 2.4.3 patch chain");
     let cat = benilla_formats::LightCatalog::load(&mut chain).expect("load Light DBCs");
 
     // Northshire resolves to Azeroth's global light 1, clear LightParams 12.
@@ -842,7 +945,7 @@ fn reads_authentic_atmosphere_from_light_dbc() {
 #[test]
 fn reads_elwynn_storm_fog_endpoints() {
     let data = benilla_formats::wow_data_or_skip!();
-    let mut chain = open_chain(&data).expect("open vanilla patch chain");
+    let mut chain = open_chain(&data).expect("open 2.4.3 patch chain");
     let cat = benilla_formats::LightCatalog::load(&mut chain).expect("load Light DBCs");
 
     // Northshire at noon, time 1440 of 2880, storm slot; its bands are single-stop.
@@ -876,24 +979,20 @@ fn reads_elwynn_storm_fog_endpoints() {
 #[test]
 fn reads_map_directories_from_map_dbc() {
     let data = benilla_formats::wow_data_or_skip!();
-    let mut chain = open_chain(&data).expect("open vanilla patch chain");
+    let mut chain = open_chain(&data).expect("open 2.4.3 patch chain");
     let cat = benilla_formats::load_map_catalog(&mut chain).expect("load Map.dbc");
 
-    // 5875 has ~44 maps (2 continents, ~12 dungeons, BGs, dev maps).
-    assert!(
-        cat.len() >= 40,
-        "expected ≥40 Map.dbc rows, got {}",
-        cat.len()
-    );
+    assert_eq!(cat.len(), 83, "final 2.4.3 Map.dbc row count");
     assert_eq!(cat.directory(0), Some("Azeroth"));
     assert_eq!(cat.directory(1), Some("Kalimdor"));
     assert_eq!(cat.directory(36), Some("DeadminesInstance"));
+    assert_eq!(cat.directory(530), Some("Expansion01"), "Outland map directory");
 }
 
 #[test]
 fn decodes_azeroth_wdl_against_apitrace_ground_truth() {
     let data = benilla_formats::wow_data_or_skip!();
-    let mut chain = open_chain(&data).expect("open vanilla patch chain");
+    let mut chain = open_chain(&data).expect("open 2.4.3 patch chain");
 
     let wdl = benilla_formats::WdlFile::load(&mut chain, "Azeroth").expect("load Azeroth.wdl");
 
@@ -948,7 +1047,7 @@ fn decodes_azeroth_wdl_against_apitrace_ground_truth() {
 #[test]
 fn magma_and_slime_submersion_read_the_fixed_global_light_params() {
     let data = benilla_formats::wow_data_or_skip!();
-    let mut chain = open_chain(&data).expect("open vanilla patch chain");
+    let mut chain = open_chain(&data).expect("open 2.4.3 patch chain");
     let cat = benilla_formats::LightCatalog::load(&mut chain).expect("load Light DBCs");
     let to255 = |c: [f32; 3]| {
         [
@@ -1073,7 +1172,7 @@ fn magma_and_slime_submersion_read_the_fixed_global_light_params() {
 #[test]
 fn the_wdl_window_contains_the_cameras_own_tile() {
     let data = benilla_formats::wow_data_or_skip!();
-    let mut chain = open_chain(&data).expect("open vanilla patch chain");
+    let mut chain = open_chain(&data).expect("open 2.4.3 patch chain");
     let wdl = benilla_formats::WdlFile::load(&mut chain, "Kalimdor").expect("load Kalimdor.wdl");
 
     // Weazel's Crater, Thousand Needles.
@@ -1096,20 +1195,18 @@ fn the_wdl_window_contains_the_cameras_own_tile() {
     assert_eq!(window.len(), expected, "every present tile in the window");
 }
 
-/// `patch.MPQ` deletes 26 paths that base archives still carry in full, cut content the 1.12
-/// client never loads; a deleted path must not fall through to the base copy.
+/// `patch.MPQ` tombstones expansion/base files; a deleted path must not fall through to the
+/// lower-priority archive copy.
 #[test]
 fn tombstoned_paths_never_fall_through_to_the_base_copy() {
     let data = benilla_formats::wow_data_or_skip!();
 
-    // Deleted by `patch.MPQ`, whole in `model.MPQ` (386416 and 437456 bytes).
-    const DELETED: [&str; 2] = [
-        "Creature\\OgreMage\\OgreMage.m2",
-        "Creature\\OgreWarlord\\OgreWarlord.m2",
-    ];
+    // Stock 2.4.3: this 565,696-byte expansion model remains in `expansion.MPQ`, but patch.MPQ
+    // deliberately deletes it from the final composite.
+    const DELETED: [&str; 1] = ["CREATURE\\Arakkoa\\Arakkoa_Sage01.m2"];
 
-    let base = Chain::open(&data.join("model.MPQ")).expect("open model.MPQ alone");
-    let chain = Chain::open(&data).expect("open the vanilla patch chain");
+    let base = Chain::open(&data.join("expansion.MPQ")).expect("open expansion.MPQ alone");
+    let chain = Chain::open(&data).expect("open the 2.4.3 patch chain");
     let listed: std::collections::HashSet<String> = chain
         .list()
         .expect("list the chain")
@@ -1120,7 +1217,7 @@ fn tombstoned_paths_never_fall_through_to_the_base_copy() {
     for name in DELETED {
         let live = base
             .read(name)
-            .unwrap_or_else(|e| panic!("{name} must still exist in model.MPQ: {e}"));
+            .unwrap_or_else(|e| panic!("{name} must still exist in expansion.MPQ: {e}"));
         assert!(
             live.len() > 100_000,
             "{name} is a real model in the base archive, got {} bytes",
@@ -1149,7 +1246,7 @@ fn tombstoned_paths_never_fall_through_to_the_base_copy() {
 #[test]
 fn reads_the_skybox_and_its_per_group_gate() {
     let data = benilla_formats::wow_data_or_skip!();
-    let mut chain = open_chain(&data).expect("open vanilla patch chain");
+    let mut chain = open_chain(&data).expect("open 2.4.3 patch chain");
 
     let city = chain
         .read_file("World\\wmo\\Dungeon\\LD_Stratholme\\Stratholme_B.wmo")
@@ -1193,7 +1290,7 @@ fn reads_the_skybox_and_its_per_group_gate() {
 #[test]
 fn wmo_ground_type_is_a_terrain_type_id() {
     let data = benilla_formats::wow_data_or_skip!();
-    let mut chain = open_chain(&data).expect("open vanilla patch chain");
+    let mut chain = open_chain(&data).expect("open 2.4.3 patch chain");
     let cat = benilla_formats::load_footstep_catalog(&mut chain).expect("footstep catalog");
 
     // The Kharanos inn: "Thunderbrew Distillery" is the area's name, the model is snow_Inn.
@@ -1248,7 +1345,7 @@ fn wmo_ground_type_is_a_terrain_type_id() {
                     .is_some_and(|t| t.len() == 3 && t.chars().all(|c| c.is_ascii_digit()))
         })
         .collect();
-    assert_eq!(roots.len(), 815, "root WMOs in the 5875 archive");
+    assert_eq!(roots.len(), 1204, "visible root WMOs in the final 2.4.3 chain");
     let (mut total, mut none, mut multi) = (0usize, 0usize, 0usize);
     for name in &roots {
         let Ok(bytes) = chain.read_file(name) else {
@@ -1270,26 +1367,27 @@ fn wmo_ground_type_is_a_terrain_type_id() {
     }
     assert_eq!(
         (total, none),
-        (10_299, 10_075),
-        "the 5875 ground_type census"
+        (14_925, 14_343),
+        "the 2.4.3 ground_type census"
     );
-    assert_eq!(multi, 121, "roots authoring more than one surface");
+    assert_eq!(multi, 245, "roots authoring more than one surface");
 }
 
-/// The ghost sky: `LightParams.lightSkyboxID` -> `LightSkybox.dbc` -> a readable model. The
-/// reference reads it only through the ghost override (`0x6d26cb`, gated on `[0xce9bb0] != -1`).
-/// 5 of 426 `LightParams` rows carry an id, all 3 (`DeathClouds.mdx`), from param slot 4 of all
-/// 374 `Light` rows, so it resolves the same everywhere, Deeprun Tram's fallback row included.
+/// The death/ghost sky slot: `LightParams.lightSkyboxID` -> `LightSkybox.dbc` -> a readable model.
+/// Stock 2.4.3 also uses this field for many *normal* Outland skyboxes in clear/storm parameter
+/// slots, but the death slot still resolves `DeathClouds.mdx`; `ghost_skybox` intentionally reads
+/// that override rather than conflating it with the normal authored sky.
 #[test]
 fn resolves_the_ghost_skybox_everywhere() {
     let data = benilla_formats::wow_data_or_skip!();
-    let mut chain = open_chain(&data).expect("open vanilla patch chain");
+    let mut chain = open_chain(&data).expect("open 2.4.3 patch chain");
     let cat = benilla_formats::LightCatalog::load(&mut chain).expect("load Light DBCs");
 
     const DEATH_CLOUDS: &str = "environments\\stars\\deathclouds.m2";
     for (map, pos, what) in [
         (0u32, [-8949.95f32, -132.49, 83.5], "Northshire, Azeroth"),
         (1, [1629.0, -4373.0, 31.0], "Orgrimmar, Kalimdor"),
+        (530, [-1866.7, 5600.0, 250.0], "Shattrath, Outland"),
         (
             369,
             [0.0, 0.0, 0.0],

@@ -334,7 +334,7 @@ fn faction_template_schema() -> Schema {
     s
 }
 
-/// `Faction.dbc`: 37 fields in build 5875 (vmangos `FactionEntry`).
+/// TBC Faction.dbc: 53 fields, including 16 locale columns per name/description.
 fn faction_schema() -> Schema {
     let mut s = Schema::new("Faction");
     s.add_field(SchemaField::new("ID", FieldType::UInt32));
@@ -352,39 +352,39 @@ fn faction_schema() -> Schema {
         s.add_field(SchemaField::new(format!("RepFlags{i}"), FieldType::UInt32));
     }
     s.add_field(SchemaField::new("Team", FieldType::UInt32));
-    for i in 0..8 {
+    for i in 0..16 {
         s.add_field(SchemaField::new(format!("Name{i}"), FieldType::String));
     }
     s.add_field(SchemaField::new("NameFlags", FieldType::UInt32));
-    for i in 0..8 {
+    for i in 0..16 {
         s.add_field(SchemaField::new(format!("Desc{i}"), FieldType::String));
     }
     s.add_field(SchemaField::new("DescFlags", FieldType::UInt32));
     s
 }
 
-/// `FactionGroup.dbc`: 12 fields, 48-byte rows; `MaskID` is a bit index, read by `0x48d540` at
-/// `+0x4` with the name at `+0xc`.
+/// TBC FactionGroup.dbc: 20 fields, with 16 localized names and a locale mask.
 fn faction_group_schema() -> Schema {
     let mut s = Schema::new("FactionGroup");
     s.add_field(SchemaField::new("ID", FieldType::UInt32));
     s.add_field(SchemaField::new("MaskID", FieldType::UInt32));
     s.add_field(SchemaField::new("InternalName", FieldType::String));
-    for i in 0..8 {
+    for i in 0..16 {
         s.add_field(SchemaField::new(format!("Name{i}"), FieldType::String));
     }
     s.add_field(SchemaField::new("NameFlags", FieldType::UInt32));
     s
 }
 
-/// `ChrRaces.dbc`: 29 fields in build 5875. Only the id and `FactionID` (column 2) are read; the
-/// string columns are declared so the field count matches.
+/// TBC 2.4.3 ChrRaces carries 69 dwords, including localized names and three trailing
+/// customization tokens. Only the ID and faction template (field 2) are needed here.
 fn chr_races_schema() -> Schema {
     let mut s = Schema::new("ChrRaces");
-    for i in 0..29 {
-        let ty = match i {
-            15 | 26 | 27 | 28 => FieldType::String,
-            _ => FieldType::UInt32,
+    for i in 0..69 {
+        let ty = if matches!(i, 12 | 65 | 66 | 67) {
+            FieldType::String
+        } else {
+            FieldType::UInt32
         };
         s.add_field(SchemaField::new(format!("f{i}"), ty));
     }
@@ -441,8 +441,8 @@ pub fn load_faction_catalog(chain: &mut Chain) -> Result<FactionCatalog> {
             if let Some(name) = crate::dbc::str_at(&rs, r, 19) {
                 names.insert(id, name);
             }
-            // Desc0 (enUS), column 28, past the name block; empty on most rows.
-            if let Some(desc) = crate::dbc::str_at(&rs, r, 28) {
+            // Desc0 (enUS), column 36, past the 16-name block and its flags.
+            if let Some(desc) = crate::dbc::str_at(&rs, r, 36) {
                 descriptions.insert(id, desc);
             }
         }

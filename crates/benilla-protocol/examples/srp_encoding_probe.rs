@@ -274,7 +274,7 @@ fn handshake(
     let attempt = compute(&reply, user, pass, enc, want, tries)
         .ok_or_else(|| anyhow!("ephemeral search did not reach the wanted shape"))?;
 
-    auth::write_logon_proof(&mut s, &attempt.a_pub, &attempt.m1, &reply.crc_salt)
+    auth::write_logon_proof(&mut s, &attempt.a_pub, &attempt.m1, &reply.crc_salt, None)
         .context("sending logon proof")?;
     let outcome = match auth::read_proof_reply(&mut s) {
         Ok(m2) => Outcome::Accepted {

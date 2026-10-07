@@ -1,5 +1,5 @@
-//! The WoW 1.12.1 (build 5875) wire protocol: [`auth`] for realmd (login protocol version 3),
-//! [`world`] and [`events`] for the world server. SRP6 and the header crypto are `benilla-srp`'s.
+//! The WoW Burning Crusade 2.4.3 (build 8606) wire protocol: [`auth`] for realmd, [`world`] and
+//! [`events`] for the world server. SRP6 and the TBC header crypto are `benilla-srp`'s.
 
 pub mod auth;
 pub mod events;
@@ -7,7 +7,7 @@ pub mod guid;
 pub mod messages;
 pub mod wire;
 pub mod world;
-pub use auth::AuthReject;
+pub use auth::{AuthReject, AuthenticatorRequired};
 pub use events::{
     decode, CharAction, EntityKind, LoginRefusal, LoginStage, MoveSpeeds, Poll, SessionEnd,
     SessionEvent, SessionEventKind,
@@ -29,10 +29,10 @@ use std::net::TcpStream;
 use anyhow::{anyhow, Context, Result};
 use benilla_srp::{NormalizedString, PublicKey, SrpClientChallenge, SESSION_KEY_LENGTH};
 
-/// The port a stock vmangos `realmd` listens on.
+/// The standard realmd port.
 pub const AUTH_PORT: u16 = 3724;
-/// The 1.12.1 client build we present to the server.
-pub const CLIENT_BUILD: u16 = 5875;
+/// The Burning Crusade 2.4.3 client build we present to the server.
+pub const CLIENT_BUILD: u16 = 8606;
 /// Challenges [`logon`] draws for an unambiguous `B`; one in ~137 is not, so all 8 fail ~10⁻¹⁷.
 const MAX_CHALLENGE_DIALS: u32 = 8;
 
@@ -100,28 +100,39 @@ fn dial(host: &str, port: u16) -> Result<TcpStream> {
     })
 }
 
-/// A realm from realmd's realm list, with every field the wire carries.
+/// A realm's explicitly advertised client version when `REALM_FLAG_SPECIFYBUILD` is set.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RealmBuild {
+    pub major: u8,
+    pub minor: u8,
+    pub patch: u8,
+    pub build: u16,
+}
+
+/// A realm from the 2.4.3 realmd realm list, with every wire field retained.
 #[derive(Debug, Clone)]
 pub struct RealmInfo {
     pub name: String,
     /// `host:port` of the world server, as the client would connect to it.
     pub address: String,
-    /// The population, sentinels already rewritten as the reference parser does
-    /// ([`auth::MAGIC_POPULATIONS`]); the list shows a band against all realms' mean and deviation.
+    /// Population as carried by the 2.4.3 realm record. Recommended/New/Full are real flag bits
+    /// in TBC rather than Vanilla sentinel population values.
     pub population: f32,
     /// This account's character count there, shown as `"(3)"` (client realm record `+0x130`).
     pub characters: u8,
-    /// The realm type (record `+0x04`), a join key, not an enum: `GetRealmInfo` takes `(pvp, rp)`
-    /// from the `Cfg_Configs.dbc` row whose `RealmType` equals it.
+    /// Realm type/icon. TBC carries one byte; kept widened for the existing UI lookup API.
     pub realm_type: u32,
-    /// The realm flags as the client holds them (record `+0x08`): the wire carries only `0x01`
-    /// invalid, `0x02` offline and `0x04`; `0x20`/`0x40`/`0x80` (Recommended, New, Full) are
-    /// synthesized from the magic populations ([`auth::MAGIC_POPULATIONS`]).
+    /// `true` when the TBC realm-list lock byte is non-zero.
+    pub locked: bool,
+    /// TBC `RealmFlags`: invalid 0x01, offline 0x02, specify-build 0x04, new 0x20,
+    /// recommended 0x40 and full 0x80.
     pub flags: u8,
     /// The category (timezone) byte the list's tabs group on, matched by equality, not an index.
     pub category: u8,
-    /// The wire's realm id.
+    /// The final TBC per-realm byte (cMaNGOS emits 0x2C).
     pub id: u8,
+    /// Present when flag 0x04 (`REALM_FLAG_SPECIFYBUILD`) appends a version tuple.
+    pub build: Option<RealmBuild>,
 }
 
 /// A successful logon: the SRP6 session key, the realms, and the realmd socket, kept open because
@@ -163,8 +174,21 @@ impl Logon {
     }
 }
 
-/// The full SRP6 logon against a vanilla `realmd`, then the realm list.
+/// The normal SRP6 logon against a 2.4.3 realmd, then the realm list.
+///
+/// Accounts that require a TBC authenticator return [`auth::AuthenticatorRequired`]; callers that
+/// can collect the token should use [`logon_with_authenticator`].
 pub fn logon(host: &str, username: &str, password: &str) -> Result<Logon> {
+    logon_with_authenticator(host, username, password, None)
+}
+
+/// The 2.4.3 logon with an optional authenticator token.
+pub fn logon_with_authenticator(
+    host: &str,
+    username: &str,
+    password: &str,
+    authenticator: Option<&str>,
+) -> Result<Logon> {
     let (host, port) = host_port(host, AUTH_PORT);
 
     let username_n =
@@ -209,6 +233,11 @@ pub fn logon(host: &str, username: &str, password: &str) -> Result<Logon> {
         challenge.client_public_key(),
         challenge.client_proof(),
         &reply.crc_salt,
+        if reply.authenticator_required {
+            Some(authenticator.ok_or(auth::AuthenticatorRequired)?)
+        } else {
+            None
+        },
     )
     .context("sending logon proof")?;
 

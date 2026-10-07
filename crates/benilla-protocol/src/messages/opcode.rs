@@ -448,6 +448,11 @@ pub const SMSG_FORCE_SWIM_BACK_SPEED_CHANGE: u16 = 0x02DC; // 732
 pub const CMSG_FORCE_SWIM_BACK_SPEED_CHANGE_ACK: u16 = 0x02DD; // 733
 pub const SMSG_FORCE_TURN_RATE_CHANGE: u16 = 0x02DE; // 734
 pub const CMSG_FORCE_TURN_RATE_CHANGE_ACK: u16 = 0x02DF; // 735
+/// TBC flight-speed changes, in the same force/ack protocol as running and swimming.
+pub const SMSG_FORCE_FLIGHT_SPEED_CHANGE: u16 = 0x0381;
+pub const CMSG_FORCE_FLIGHT_SPEED_CHANGE_ACK: u16 = 0x0382;
+pub const SMSG_FORCE_FLIGHT_BACK_SPEED_CHANGE: u16 = 0x0383;
+pub const CMSG_FORCE_FLIGHT_BACK_SPEED_CHANGE_ACK: u16 = 0x0384;
 
 // Speed changes on units we do not control, never acked. A creature's, or a player's mid-spline,
 // come as `SMSG_SPLINE_SET_*` `[packed guid][f32 speed]`; a freely moving player's come as
@@ -458,6 +463,10 @@ pub const SMSG_SPLINE_SET_SWIM_SPEED: u16 = 0x0300; // 768
 pub const SMSG_SPLINE_SET_WALK_SPEED: u16 = 0x0301; // 769
 pub const SMSG_SPLINE_SET_SWIM_BACK_SPEED: u16 = 0x0302; // 770
 pub const SMSG_SPLINE_SET_TURN_RATE: u16 = 0x0303; // 771
+pub const SMSG_SPLINE_SET_FLIGHT_SPEED: u16 = 0x0385;
+pub const SMSG_SPLINE_SET_FLIGHT_BACK_SPEED: u16 = 0x0386;
+pub const MSG_MOVE_SET_FLIGHT_SPEED: u16 = 0x037E;
+pub const MSG_MOVE_SET_FLIGHT_BACK_SPEED: u16 = 0x0380;
 
 // Mode changes on any unit, for observers: a bare packed guid, no counter, no ack
 // (`MovementPacketSender.cpp:399-462`). The reference handles all twelve at `0x603c80`, drops an

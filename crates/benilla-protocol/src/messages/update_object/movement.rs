@@ -1,7 +1,7 @@
 use std::io::{self, Read};
 
 use crate::messages::movement::{
-    TransportPose, MOVEMENT_FLAG_JUMPING, MOVEMENT_FLAG_ON_TRANSPORT,
+    TransportPose, MOVEMENT_FLAG_FALLING, MOVEMENT_FLAG_FLYING2, MOVEMENT_FLAG_ON_TRANSPORT,
     MOVEMENT_FLAG_SPLINE_ELEVATION, MOVEMENT_FLAG_SPLINE_ENABLED, MOVEMENT_FLAG_SWIMMING,
 };
 use crate::wire::{
@@ -88,8 +88,8 @@ pub struct MovementBlock {
     /// `0x75a07dff` mask (`0x618c30`) and commits the pitch at once (`0x7c6420`), so a unit
     /// streaming in mid-swim is pitched on its first frame.
     pub mover: Option<MoverState>,
-    /// A `LIVING` block's speeds in wire order `[walk, run, run_back, swim, swim_back, turn_rate]`.
-    pub speeds: Option<[f32; 6]>,
+    /// TBC wire order: walk, run, run back, swim, swim back, flight, flight back, turn rate.
+    pub speeds: Option<[f32; 8]>,
     /// A ship's or elevator's path progress in ms at create, the anchor its cycle runs from
     /// (`Object.cpp:590-605`); no other object sets `UPDATE_FLAG_TRANSPORT`.
     pub transport_progress: Option<u32>,
@@ -111,6 +111,7 @@ impl MovementBlock {
 
         if update_flag & UPDATE_FLAG_LIVING != 0 {
             let flags = read_u32_le(r)?;
+            let _flags2 = read_u8(r)?;
             let _timestamp = read_u32_le(r)?;
             let living_position = Vector3d::read(r)?;
             let living_orientation = read_f32_le(r)?;
@@ -122,16 +123,17 @@ impl MovementBlock {
                     guid: read_u64_le(r)?,
                     pos: Vector3d::read(r)?,
                     orientation: read_f32_le(r)?,
+                    time: read_u32_le(r)?,
                 });
             }
-            let pitch = if flags & MOVEMENT_FLAG_SWIMMING != 0 {
+            let pitch = if flags & (MOVEMENT_FLAG_SWIMMING | MOVEMENT_FLAG_FLYING2) != 0 {
                 read_f32_le(r)?
             } else {
                 0.0
             };
             mover = Some(MoverState { flags, pitch });
-            let _fall_time = read_f32_le(r)?;
-            if flags & MOVEMENT_FLAG_JUMPING != 0 {
+            let _fall_time = read_u32_le(r)?;
+            if flags & MOVEMENT_FLAG_FALLING != 0 {
                 for _ in 0..4 {
                     let _ = read_f32_le(r)?; // z_speed, cos_angle, sin_angle, xy_speed
                 }
@@ -139,7 +141,7 @@ impl MovementBlock {
             if flags & MOVEMENT_FLAG_SPLINE_ELEVATION != 0 {
                 let _ = read_f32_le(r)?;
             }
-            let mut s = [0.0f32; 6];
+            let mut s = [0.0f32; 8];
             for slot in &mut s {
                 *slot = read_f32_le(r)?;
             }

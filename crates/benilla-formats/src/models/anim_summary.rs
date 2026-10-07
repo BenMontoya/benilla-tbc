@@ -219,7 +219,7 @@ mod tests {
     fn header_with_counts(tex_transform_count: u32, ribbon_count: u32) -> Vec<u8> {
         let mut b = vec![0u8; 0x138];
         b[0..4].copy_from_slice(b"MD20");
-        b[4..8].copy_from_slice(&256u32.to_le_bytes());
+        b[4..8].copy_from_slice(&260u32.to_le_bytes());
         b[0x74..0x78].copy_from_slice(&tex_transform_count.to_le_bytes());
         b[0x134..0x138].copy_from_slice(&ribbon_count.to_le_bytes());
         b

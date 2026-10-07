@@ -24,6 +24,8 @@ fn speeds() -> MoveSpeeds {
         run_back: 4.5,
         swim: 4.0,
         swim_back: 0.0,
+        flight: 7.0,
+        flight_back: 4.5,
         turn_rate: std::f32::consts::PI,
     }
 }

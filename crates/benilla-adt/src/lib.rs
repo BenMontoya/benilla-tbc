@@ -1,5 +1,7 @@
-//! A reader for 1.12.1's monolithic root ADTs: IFF chunks (a reversed magic, a `u32` size, the
-//! payload) holding the asset names, the placements and 256 `MCNK` terrain chunks.
+//! A reader for Burning Crusade 2.4.3 monolithic root ADTs: MVER 18 IFF chunks (a reversed magic,
+//! a `u32` size, the payload) holding asset names, placements and 256 `MCNK` terrain chunks. TBC's
+//! optional `MFBO` flight-bound planes are recognized but intentionally deferred to the flying
+//! milestone; they are not interpreted as terrain geometry.
 
 use std::io::Cursor;
 
@@ -192,7 +194,7 @@ pub struct WmoPlacement {
     pub name_set: u16,
 }
 
-/// A parsed vanilla (monolithic) root ADT.
+/// A parsed 2.4.3 monolithic root ADT.
 #[derive(Debug, Clone)]
 pub struct RootAdt {
     pub textures: Vec<String>,
@@ -203,7 +205,7 @@ pub struct RootAdt {
     pub mcnk_chunks: Vec<McnkChunk>,
 }
 
-/// A parsed ADT; vanilla has only the monolithic root.
+/// A parsed ADT; 2.4.3 uses the monolithic root layout.
 #[derive(Debug, Clone)]
 pub enum ParsedAdt {
     Root(Box<RootAdt>),
@@ -213,12 +215,18 @@ pub enum ParsedAdt {
 #[derive(Debug)]
 pub enum Error {
     Truncated(&'static str),
+    MissingVersion,
+    UnsupportedVersion(u32),
 }
 
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Error::Truncated(w) => write!(f, "truncated ADT: {w}"),
+            Error::MissingVersion => write!(f, "ADT has no MVER chunk"),
+            Error::UnsupportedVersion(v) => {
+                write!(f, "unsupported ADT MVER {v} (expected 18 for 2.4.3)")
+            }
         }
     }
 }
@@ -237,10 +245,11 @@ fn cstring_at(blob: &[u8], offset: usize) -> String {
     String::from_utf8_lossy(&blob[offset.min(blob.len())..end]).into_owned()
 }
 
-/// Parse a vanilla monolithic ADT; the cursor's position is ignored.
+/// Parse a Burning Crusade 2.4.3 monolithic ADT; the cursor's position is ignored.
 pub fn parse_adt(cursor: &mut Cursor<&[u8]>) -> Result<ParsedAdt> {
     let b: &[u8] = cursor.get_ref();
 
+    let mut version = None;
     let mut textures = Vec::new();
     let mut mmdx = Vec::new();
     let mut mmid: Vec<u32> = Vec::new();
@@ -252,6 +261,13 @@ pub fn parse_adt(cursor: &mut Cursor<&[u8]>) -> Result<ParsedAdt> {
 
     for (magic, data) in chunks(b) {
         match &magic {
+            b"REVM" => {
+                let v = data.u32_at(0).ok_or(Error::Truncated("MVER"))?;
+                if v != 18 {
+                    return Err(Error::UnsupportedVersion(v));
+                }
+                version = Some(v);
+            }
             b"XETM" => textures = split_strings(data),       // MTEX
             b"XDMM" => mmdx = data.to_vec(),                 // MMDX (blob)
             b"DIMM" => mmid = read_u32_list(data, "MMID")?,  // MMID (offsets)
@@ -260,8 +276,14 @@ pub fn parse_adt(cursor: &mut Cursor<&[u8]>) -> Result<ParsedAdt> {
             b"FDDM" => doodad_placements = read_mddf(data)?, // MDDF
             b"FDOM" => wmo_placements = read_modf(data)?,    // MODF
             b"KNCM" => mcnk_chunks.push(read_mcnk(data)?),   // MCNK
+            // MFBO: TBC flight bounds. Parsed in the flying milestone, not terrain rendering.
+            b"OBFM" => {},
             _ => {}
         }
+    }
+
+    if version.is_none() {
+        return Err(Error::MissingVersion);
     }
 
     // MDDF/MODF `name_id` indexes the MMID/MWID offset tables.
@@ -571,7 +593,9 @@ mod tests {
     }
 
     fn parse(bytes: &[u8]) -> Result<ParsedAdt> {
-        parse_adt(&mut Cursor::new(bytes))
+        let mut file = chunk(b"REVM", &18u32.to_le_bytes());
+        file.extend_from_slice(bytes);
+        parse_adt(&mut Cursor::new(&file))
     }
 
     #[test]

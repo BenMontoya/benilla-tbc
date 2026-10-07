@@ -16,6 +16,7 @@ pub(super) fn client_uptime_ms() -> u32 {
 pub(super) fn movement_info(pos: [f32; 3], orientation: f32, flags: u32) -> MovementInfo {
     MovementInfo {
         flags,
+        flags2: 0,
         timestamp: client_uptime_ms(),
         position: Vector3d {
             x: pos[0],
@@ -29,6 +30,7 @@ pub(super) fn movement_info(pos: [f32; 3], orientation: f32, flags: u32) -> Move
         pitch: 0.0,
         fall_time: 0,
         jump: None,
+        spline_elevation: 0.0,
     }
 }
 

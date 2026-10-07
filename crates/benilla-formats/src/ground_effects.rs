@@ -313,9 +313,10 @@ fn resolve_model(dbc_name: &str) -> String {
     format!("{DETAIL_DIR}{stem}.m2")
 }
 
-/// Load both ground-effect DBCs off the patch chain. The reference matches `doodadId` against
-/// `GroundEffectDoodad.internalId` (field 1), one less than the row `ID` in 5875: `true` is
-/// faithful, `false` keys by row `ID`, an off-by-one kept only for A/B comparison.
+/// Load both ground-effect DBCs off the patch chain. `GroundEffectTexture.doodadId` matches
+/// `GroundEffectDoodad.internalId` (field 1), not that table's row `ID`. In 2.4.3 the two ids are
+/// not related by a fixed offset, so the internal id is required for Outland clutter. `false`
+/// retains the row-ID lookup only as an A/B comparison path.
 pub fn load_ground_effect_catalog(
     chain: &mut Chain,
     key_by_internal_id: bool,

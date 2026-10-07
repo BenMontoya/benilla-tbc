@@ -28,11 +28,11 @@ const SECTION_HAIR: u8 = 3;
 /// A CharSections availability key: `(race, sex, sectionType, variation, color)`.
 type SectionKey = (u8, u8, u8, u8, u8);
 
-/// The playable races, ChrRaces ids 1–8; Goblin (9) and above are not creatable.
-const PLAYABLE_RACES: [u8; 8] = [1, 2, 3, 4, 5, 6, 7, 8];
+/// The ten playable races in TBC 2.4.3. Goblin (9) is an NPC race, not creatable.
+const PLAYABLE_RACES: [u8; 10] = [1, 2, 3, 4, 5, 6, 7, 8, 10, 11];
 
-/// The shipped ChrRaces fileStrings (col 15), guarding [`load_races`]' string columns.
-const KNOWN_FILES: [(u8, &str); 8] = [
+/// Stock 8606 fileStrings (field 12), guarding [`load_races`]' DBC string resolution.
+const KNOWN_FILES: [(u8, &str); 10] = [
     (1, "Human"),
     (2, "Orc"),
     (3, "Dwarf"),
@@ -41,27 +41,25 @@ const KNOWN_FILES: [(u8, &str); 8] = [
     (6, "Tauren"),
     (7, "Gnome"),
     (8, "Troll"),
+    (10, "BloodElf"),
+    (11, "Draenei"),
 ];
 
-/// The shipped `CharBaseInfo` rows by race, the load-time guard on the 2-byte parse: each must be
-/// present, and a patch may add more, as the class-list builder `0x4706b0` lists every row for the
-/// race. Not the playable set, as it holds the dead Dwarf-Mage row ([`UNUSED_COMBOS`]).
-const KNOWN_COMBOS: [(u8, &[u8]); 8] = [
+/// Confirmed stock TBC 2.4.3 `CharBaseInfo` pairs; every row is creatable.
+const KNOWN_COMBOS: [(u8, &[u8]); 10] = [
     (1, &[1, 2, 4, 5, 8, 9]), // Human
-    (2, &[1, 3, 4, 7, 9]),    // Orc
-    (3, &[1, 2, 3, 4, 5, 8]), // Dwarf; 8 (Mage) is the dead row
-    (4, &[1, 3, 4, 5, 11]),   // Night Elf
-    (5, &[1, 4, 5, 8, 9]),    // Undead
-    (6, &[1, 3, 7, 11]),      // Tauren
-    (7, &[1, 4, 8, 9]),       // Gnome
+    (2, &[1, 3, 4, 7, 9]), // Orc
+    (3, &[1, 2, 3, 4, 5]), // Dwarf
+    (4, &[1, 3, 4, 5, 11]), // Night Elf
+    (5, &[1, 4, 5, 8, 9]), // Undead
+    (6, &[1, 3, 7, 11]), // Tauren
+    (7, &[1, 4, 8, 9]), // Gnome
     (8, &[1, 3, 4, 5, 7, 8]), // Troll
+    (10, &[2, 3, 4, 5, 8, 9]), // Blood Elf
+    (11, &[1, 2, 3, 5, 7, 8]), // Draenei
 ];
 
-/// `CharBaseInfo` pairs the client never offers: its class-list builder `0x4706b0` skips the
-/// literal `race == 3 && class == 8` (Dwarf-Mage), though the row and its outfit are populated.
-const UNUSED_COMBOS: [(u8, u8); 1] = [(3, 8)];
-
-/// The `CharBaseInfo` misparse guard: every shipped pair is present; a patch's extra pairs pass.
+/// Check the actual two-byte (race,class) pairs, not an assumed contiguous race/class range.
 fn shipped_combos_present(combos: &HashSet<(u8, u8)>) -> Result<()> {
     for (race, classes) in KNOWN_COMBOS {
         let missing: Vec<u8> = classes
@@ -70,10 +68,7 @@ fn shipped_combos_present(combos: &HashSet<(u8, u8)>) -> Result<()> {
             .filter(|&c| !combos.contains(&(race, c)))
             .collect();
         if !missing.is_empty() {
-            bail!(
-                "CharBaseInfo misparse: race {race} lacks shipped classes {missing:?} \
-                 (check the 2-byte race/class layout)"
-            );
+            bail!("CharBaseInfo: race {race} missing stock 8606 classes {missing:?}");
         }
     }
     Ok(())
@@ -98,11 +93,11 @@ pub struct DialRanges {
 
 /// Character-creation source data, loaded once from the DBCs ([`Self::load`]).
 pub struct CharCreateCatalog {
-    /// race → (male displayId, female displayId), from ChrRaces cols 4/5.
+    /// race → (male displayId, female displayId), from ChrRaces fields 4/5.
     displays: HashMap<u8, (u32, u32)>,
-    /// race → ChrRaces fileString (col 15), the GlueStrings key stem (`RACE_INFO_<FILE>`).
+    /// race → ChrRaces fileString (field 12), the GlueStrings key stem.
     files: HashMap<u8, String>,
-    /// race → ([male, female] facial-hair token, cols 26/27; hair token, col 28).
+    /// race → ([male, female] facial-hair token, fields 65/66; hair token, 67).
     custom_tokens: HashMap<u8, ([String; 2], String)>,
     combos: HashSet<(u8, u8)>,
     ranges: HashMap<(u8, u8), DialRanges>,
@@ -118,7 +113,7 @@ impl CharCreateCatalog {
             .map(|&(m, f)| if sex == 0 { m } else { f })
     }
 
-    /// Whether a race may be created as a class (CharBaseInfo less `UNUSED_COMBOS`).
+    /// Whether a race may be created as a class, directly from TBC CharBaseInfo.
     pub fn allows(&self, race: u8, class: u8) -> bool {
         self.combos.contains(&(race, class))
     }
@@ -166,8 +161,7 @@ impl CharCreateCatalog {
             .map_or(&[], Vec::as_slice)
     }
 
-    /// Load the catalog from the patch chain. The misparse guards compare the raw combos, so they
-    /// run before `UNUSED_COMBOS` are stripped.
+    /// Load the character-creation catalog directly from stock 2.4.3 DBC records.
     pub fn load(chain: &mut Chain) -> Result<Self> {
         let (displays, files, custom_tokens) = load_races(chain)?;
         let combos = load_combos(chain)?;
@@ -186,7 +180,7 @@ impl CharCreateCatalog {
             }
         }
 
-        let mut catalog = Self {
+        let catalog = Self {
             displays,
             files,
             custom_tokens,
@@ -195,9 +189,6 @@ impl CharCreateCatalog {
             start_outfits,
         };
         catalog.self_check()?;
-        for combo in UNUSED_COMBOS {
-            catalog.combos.remove(&combo);
-        }
         Ok(catalog)
     }
 
@@ -212,24 +203,16 @@ impl CharCreateCatalog {
                 );
             }
         }
-        // CharStartOutfit layout guard: the shipped Human Warrior male set, (display,
-        // InventoryType) for the shirt, pants, boots, shortsword and shield.
-        let hw = self.start_outfit(1, 1, 0);
-        for &(disp, inv) in &[
-            (9891u32, 4u8),
-            (9892, 7),
-            (10141, 8),
-            (1542, 21),
-            (18730, 14),
-        ] {
-            if !hw
-                .iter()
-                .any(|it| it.display_id == disp && it.inv_type == inv)
-            {
-                bail!(
-                    "CharStartOutfit misparse: Human Warrior male missing display {disp} inv {inv} \
-                     (got {hw:?}) — check the 41-field / 152-byte packed layout"
-                );
+        // Each supported race/class/sex combination must have start gear from this install.
+        // These are data-driven; Vanilla item display ids are not valid guards in a TBC client.
+        for &(race, class) in &self.combos {
+            if !PLAYABLE_RACES.contains(&race) {
+                continue;
+            }
+            for sex in [0u8, 1] {
+                if self.start_outfit(race, class, sex).is_empty() {
+                    bail!("CharStartOutfit: race {race} class {class} sex {sex} has no starter gear");
+                }
             }
         }
         for race in PLAYABLE_RACES {
@@ -259,8 +242,8 @@ impl CharCreateCatalog {
     }
 }
 
-/// ChrRaces (29 fields, 116-byte records) → per playable race: displayIds (cols 4/5), fileString
-/// (15), facial-hair (26/27) and hair (28) tokens; other string columns are read as ignored `u32`s.
+/// Stock TBC ChrRaces: 69 fields, 276-byte records. Display IDs at 4/5, fileString at
+/// 12, and the three character-creation customization token strings at 65/66/67.
 #[allow(clippy::type_complexity)] // one pass over one DBC → the catalog's three race-keyed maps
 fn load_races(
     chain: &mut Chain,
@@ -273,9 +256,9 @@ fn load_races(
         .read_file(CHR_RACES)
         .with_context(|| format!("reading {CHR_RACES}"))?;
     let mut schema = Schema::new("ChrRaces");
-    for i in 0..29 {
+    for i in 0..69 {
         let ty = match i {
-            15 | 26 | 27 | 28 => FieldType::String,
+            12 | 65 | 66 | 67 => FieldType::String,
             _ => FieldType::UInt32,
         };
         schema.add_field(SchemaField::new(format!("f{i}"), ty));
@@ -293,11 +276,11 @@ fn load_races(
         if let (Some(male), Some(female)) = (u32_at(r, 4), u32_at(r, 5)) {
             displays.insert(race, (male, female));
         }
-        if let Some(file) = str_at(&rs, r, 15) {
+        if let Some(file) = str_at(&rs, r, 12) {
             files.insert(race, file);
         }
         if let (Some(fm), Some(ff), Some(hair)) =
-            (str_at(&rs, r, 26), str_at(&rs, r, 27), str_at(&rs, r, 28))
+            (str_at(&rs, r, 65), str_at(&rs, r, 66), str_at(&rs, r, 67))
         {
             tokens.insert(race, ([fm, ff], hair));
         }
@@ -430,7 +413,7 @@ fn load_facial_hair_styles(chain: &mut Chain) -> Result<HashMap<(u8, u8), HashSe
         .with_context(|| format!("reading {CHAR_FACIAL_HAIR_STYLES}"))?;
     let rs = parse(
         &bytes,
-        all_u32_schema("CharacterFacialHairStyles", 9),
+        all_u32_schema("CharacterFacialHairStyles", 11),
         "CharacterFacialHairStyles",
     )?;
     let mut map: HashMap<(u8, u8), HashSet<u8>> = HashMap::new();
@@ -545,7 +528,7 @@ mod tests {
     }
 
     #[test]
-    fn char_create_catalog_matches_the_5875_dbcs() {
+    fn char_create_catalog_matches_the_8606_dbcs() {
         let data = crate::wow_data_or_skip!();
         let mut chain = crate::open_chain(&data).expect("open chain");
         let cat = CharCreateCatalog::load(&mut chain).expect("load char-create catalog");
@@ -568,13 +551,9 @@ mod tests {
             }
         }
 
-        // The playable sets are the raw table less the dead pairs.
+        // TBC's CharBaseInfo stores only playable race/class combinations.
         for (race, classes) in KNOWN_COMBOS {
-            let playable: Vec<u8> = classes
-                .iter()
-                .copied()
-                .filter(|&c| !UNUSED_COMBOS.contains(&(race, c)))
-                .collect();
+            let playable: Vec<u8> = classes.to_vec();
             assert_eq!(
                 cat.classes_for_race(race),
                 playable,
@@ -615,10 +594,7 @@ mod tests {
 
         // Every creatable combo wears at least one item; the Human Mage wears a robe (inv 20).
         for (race, classes) in KNOWN_COMBOS {
-            for &class in classes
-                .iter()
-                .filter(|&&c| !UNUSED_COMBOS.contains(&(race, c)))
-            {
+            for &class in classes {
                 for sex in [0u8, 1] {
                     let out = cat.start_outfit(race, class, sex);
                     assert!(

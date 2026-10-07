@@ -1,5 +1,6 @@
-//! Vanilla (MD20 v256) M2 particle emitters, read from raw bytes because `benilla-m2` skips them:
-//! fixed 0x1f8-byte records (array at MD20+0x13c/+0x140) at the reference loader's offsets
+//! Pre-Wrath M2 particle emitters as shipped by Burning Crusade 2.4.3, read from raw bytes because
+//! `benilla-m2` skips them: fixed 0x1f8-byte records (array at MD20+0x13c/+0x140). Stock v260
+//! and v261 Shattrath props retain these offsets and track layouts
 //! (`0x70ebd0`). Rate and enabled bake one loop per sequence into [`EmitTiming`], since the
 //! reference samples both in the playing sequence's key window (`0x713d50`).
 
@@ -475,7 +476,7 @@ fn shape_of(v: u16) -> ParticleShape {
     }
 }
 
-/// The vanilla M2's particle emitters, textures resolved through `benilla-m2`'s textures table;
+/// The 2.4.3 M2 particle emitters, textures resolved through `benilla-m2`'s textures table;
 /// empty for a model with none or a file that is not MD20.
 pub fn parse_m2_particle_emitters(bytes: &[u8]) -> Result<Vec<ParticleEmitterDef>> {
     let textures: Vec<Option<String>> = match parse_m2(&mut Cursor::new(bytes)) {

@@ -1,5 +1,5 @@
-//! The realmd (login) wire protocol, version 3 in 1.12.1: logon challenge, logon proof and realm
-//! list, the three exchanges [`crate::logon`] performs. Login packets are not header-encrypted and
+//! The Burning Crusade 2.4.3 realmd wire protocol: logon challenge, logon proof and realm list,
+//! the three exchanges [`crate::logon`] performs. Login packets are not header-encrypted and
 //! each is self-delimiting, so they are read in request/response order.
 
 use std::io::{Read, Write};
@@ -9,7 +9,7 @@ use anyhow::{bail, Result};
 use sha1::{Digest, Sha1};
 
 use crate::wire::{read_array, read_cstring, read_f32_le, read_u16_le, read_u32_le, read_u8};
-use crate::RealmInfo;
+use crate::{RealmBuild, RealmInfo};
 
 const CMD_AUTH_LOGON_CHALLENGE: u8 = 0x00;
 const CMD_AUTH_LOGON_PROOF: u8 = 0x01;
@@ -25,8 +25,8 @@ const PLATFORM_X86: u32 = 0x0078_3836; // "x86\0"
 const OS_WINDOWS: u32 = 0x0057_696e; // "Win\0"
 const OS_MACOS: u32 = 0x004F_5358; // "OSX\0"
 
-/// The host's OS tag: `OSX` on macOS, else `Win`, as there was no 1.12 Linux client. Servers act
-/// on it: vmangos picks `WardenWin` or `WardenMac`, and realmd checks the build (`FindBuildInfo`).
+/// The host's stock-client OS tag: `OSX` on macOS, else `Win`. TBC realmd uses it to select the
+/// build-integrity hash and the world server uses it for platform-specific anticheat behavior.
 const fn client_os() -> u32 {
     if cfg!(target_os = "macos") {
         OS_MACOS
@@ -53,6 +53,18 @@ impl std::fmt::Display for AuthReject {
 
 impl std::error::Error for AuthReject {}
 
+/// The account requires the 2.4.3 authenticator extension, but the caller supplied no token.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AuthenticatorRequired;
+
+impl std::fmt::Display for AuthenticatorRequired {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("server requires an authenticator token")
+    }
+}
+
+impl std::error::Error for AuthenticatorRequired {}
+
 /// The SRP6 inputs from a successful `CMD_AUTH_LOGON_CHALLENGE_Server`.
 pub struct ChallengeReply {
     pub server_public_key: [u8; 32],
@@ -61,10 +73,12 @@ pub struct ChallengeReply {
     pub salt: [u8; 32],
     /// The version challenge answered by `crc_hash` ([`version_proof`]); not an SRP6 input.
     pub crc_salt: [u8; 16],
+    /// TBC security flag 0x04. When set, the proof appends a length-prefixed decimal token.
+    pub authenticator_required: bool,
 }
 
 /// Send `CMD_AUTH_LOGON_CHALLENGE_Client`. `account_name` must be uppercased, as the SRP6 hashes
-/// use it; `build` is 5875.
+/// use it; the hard fork advertises version 2.4.3/build 8606.
 pub fn write_logon_challenge(
     w: &mut impl Write,
     account_name: &str,
@@ -73,9 +87,9 @@ pub fn write_logon_challenge(
     // Everything after the 2-byte size field, assembled first so we can prefix its length.
     let mut body = Vec::with_capacity(34 + account_name.len());
     body.extend_from_slice(&GAME_NAME_WOW.to_le_bytes());
-    body.push(1); // version major
-    body.push(12); // version minor
-    body.push(1); // version patch
+    body.push(2); // version major
+    body.push(4); // version minor
+    body.push(3); // version patch
     body.extend_from_slice(&build.to_le_bytes());
     body.extend_from_slice(&PLATFORM_X86.to_le_bytes());
     body.extend_from_slice(&client_os().to_le_bytes());
@@ -120,14 +134,30 @@ pub fn read_challenge_reply(r: &mut impl Read) -> Result<ChallengeReply> {
         .try_into()
         .map_err(|_| anyhow::anyhow!("large safe prime was {prime_len} bytes, expected 32"))?;
     let salt = read_array::<32>(r)?;
-    // Read to the end: login packets are not length-framed, so leftover bytes desync the next
-    // read. `security_flag` and the PIN block are unused but must be consumed.
+    // Consume every security extension so the next packet remains aligned. Build 8606 normally
+    // uses only AUTHENTICATOR (0x04); PIN belongs to Classic and matrix input is not implemented.
     let crc_salt = read_array::<16>(r)?;
     let security_flag = read_u8(r)?;
     if security_flag & 0x01 != 0 {
-        // PIN: pin_grid_seed (u32) + pin_salt[16]; vmangos always sends security_flag 0.
         let _pin_grid_seed = read_u32_le(r)?;
         let _pin_salt = read_array::<16>(r)?;
+    }
+    if security_flag & 0x02 != 0 {
+        let _matrix_width = read_u8(r)?;
+        let _matrix_height = read_u8(r)?;
+        let _matrix_digit_count = read_u8(r)?;
+        let _matrix_challenge_count = read_u8(r)?;
+        let _matrix_seed = read_array::<8>(r)?;
+    }
+    let authenticator_required = security_flag & 0x04 != 0;
+    if authenticator_required {
+        let _authenticator_mode = read_u8(r)?;
+    }
+    if security_flag & !0x07 != 0 {
+        bail!("unsupported auth security flags {security_flag:#04x}");
+    }
+    if security_flag & 0x03 != 0 {
+        bail!("2.4.3 client does not support legacy PIN/matrix security mode {security_flag:#04x}");
     }
     Ok(ChallengeReply {
         server_public_key,
@@ -135,12 +165,13 @@ pub fn read_challenge_reply(r: &mut impl Read) -> Result<ChallengeReply> {
         large_safe_prime,
         salt,
         crc_salt,
+        authenticator_required,
     })
 }
 
 // --- the version (client-integrity) proof --------------------------------------------------------
 //
-// The proof's `crc_hash` answers the challenge's `crc_salt`: the 1.12 client hashes its own
+// The proof's `crc_hash` answers the challenge's `crc_salt`: the 2.4.3 client hashes its own
 // binaries under that salt into a 20-byte digest `H` and sends `SHA1(A ‖ H)`. realmd recomputes it
 // from a stored `H` (`AuthSocket::VerifyVersion`) and, under `StrictVersionCheck = 1` (the shipped
 // `realmd.conf.example` value), refuses a mismatch with `WOW_FAIL_VERSION_INVALID` (0x09).
@@ -151,17 +182,16 @@ const MANGOS_VERSION_CHALLENGE: [u8; 16] = [
     0xba, 0xa3, 0x1e, 0x99, 0xa0, 0x0b, 0x21, 0x57, 0xfc, 0x37, 0x3f, 0xb3, 0x69, 0xcd, 0xd2, 0xf1,
 ];
 
-/// `H` for the build 5875 Windows client under [`MANGOS_VERSION_CHALLENGE`]: vmangos's
-/// `allowed_clients` row (`20221117065844_logon.sql`), identical to cmangos's `RealmList.cpp`.
-const INTEGRITY_HASH_5875_WINDOWS: [u8; 20] = [
-    0x95, 0xed, 0xb2, 0x7c, 0x78, 0x23, 0xb3, 0x63, 0xcb, 0xdd, 0xab, 0x56, 0xa3, 0x92, 0xe7, 0xcb,
-    0x73, 0xfc, 0xca, 0x20,
+/// `H` for the stock build-8606 Windows client under [`MANGOS_VERSION_CHALLENGE`].
+const INTEGRITY_HASH_8606_WINDOWS: [u8; 20] = [
+    0x31, 0x9A, 0xFA, 0xA3, 0xF2, 0x55, 0x96, 0x82, 0xF9, 0xFF, 0x65, 0x8B, 0xE0, 0x14, 0x56, 0x25,
+    0x5F, 0x45, 0x6F, 0xB1,
 ];
 
-/// The same for the Mac client, sent on macOS because servers pick `H` by the OS tag.
-const INTEGRITY_HASH_5875_MACOS: [u8; 20] = [
-    0x8d, 0x17, 0x3c, 0xc3, 0x81, 0x96, 0x1e, 0xeb, 0xab, 0xf3, 0x36, 0xf5, 0xe6, 0x67, 0x5b, 0x10,
-    0x1b, 0xb5, 0x13, 0xe5,
+/// The stock build-8606 Mac integrity hash.
+const INTEGRITY_HASH_8606_MACOS: [u8; 20] = [
+    0xD8, 0xB0, 0xEC, 0xFE, 0x53, 0x4B, 0xC1, 0x13, 0x1E, 0x19, 0xBA, 0xD1, 0xD4, 0xC0, 0xE8, 0x13,
+    0xEE, 0xE4, 0x99, 0x4F,
 ];
 
 /// The integrity digest `H` for `crc_salt`, known only for [`MANGOS_VERSION_CHALLENGE`].
@@ -172,9 +202,9 @@ fn integrity_hash(crc_salt: &[u8; 16]) -> Option<[u8; 20]> {
         return None;
     }
     Some(if client_os() == OS_MACOS {
-        INTEGRITY_HASH_5875_MACOS
+        INTEGRITY_HASH_8606_MACOS
     } else {
-        INTEGRITY_HASH_5875_WINDOWS
+        INTEGRITY_HASH_8606_WINDOWS
     })
 }
 
@@ -198,14 +228,27 @@ pub fn write_logon_proof(
     client_public_key: &[u8; 32],
     client_proof: &[u8; 20],
     crc_salt: &[u8; 16],
+    authenticator: Option<&str>,
 ) -> std::io::Result<()> {
-    let mut packet = Vec::with_capacity(1 + 32 + 20 + 20 + 1 + 1);
+    if let Some(token) = authenticator {
+        if token.is_empty() || token.len() > 16 || !token.bytes().all(|b| b.is_ascii_digit()) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "authenticator token must be 1..=16 ASCII digits",
+            ));
+        }
+    }
+    let mut packet = Vec::with_capacity(1 + 32 + 20 + 20 + 1 + 1 + 1 + 16);
     packet.push(CMD_AUTH_LOGON_PROOF);
     packet.extend_from_slice(client_public_key);
     packet.extend_from_slice(client_proof);
     packet.extend_from_slice(&version_proof(crc_salt, client_public_key));
     packet.push(0); // number_of_telemetry_keys
-    packet.push(0); // security_flag = None
+    packet.push(if authenticator.is_some() { 0x04 } else { 0x00 });
+    if let Some(token) = authenticator {
+        packet.push(token.len() as u8);
+        packet.extend_from_slice(token.as_bytes());
+    }
     w.write_all(&packet)
 }
 
@@ -221,7 +264,9 @@ pub fn read_proof_reply(r: &mut impl Read) -> Result<[u8; 20]> {
         return Err(AuthReject { code: result }.into());
     }
     let server_proof = read_array::<20>(r)?;
-    let _hardware_survey_id = read_u32_le(r)?;
+    let _account_flags = read_u32_le(r)?;
+    let _survey_id = read_u32_le(r)?;
+    let _unknown_flags = read_u16_le(r)?;
     Ok(server_proof)
 }
 
@@ -232,18 +277,7 @@ pub fn write_realm_list_request(w: &mut impl Write) -> std::io::Result<()> {
     w.write_all(&packet)
 }
 
-/// The magic populations the 1.12 realm-list parser (`0x5b2230`) rewrites, as `(population sent,
-/// population rewritten, flag OR'd)`: Recommended, New and Full travel as these exact float bit
-/// patterns, not as wire flags.
-pub(crate) const MAGIC_POPULATIONS: [(u32, u32, u8); 3] = [
-    (0x4416_0000, 0x0000_0000, 0x20), // 600.0 → 0.0,   Recommended
-    (0x4348_0000, 0x3a83_126f, 0x40), // 200.0 → 0.001, New
-    (0x43c8_0000, 0x4100_0000, 0x80), // 400.0 → 8.0,   Full
-];
-
-/// Read `CMD_REALM_LIST_Server` into the advertised realms, rewriting [`MAGIC_POPULATIONS`] here
-/// as the reference parser does: the realm-list screen averages every realm's population, and an
-/// unswapped Recommended `600.0` would skew that mean for every row.
+/// Read a Burning Crusade 2.4.3 `CMD_REALM_LIST_Server`.
 pub fn read_realm_list(r: &mut impl Read) -> Result<Vec<RealmInfo>> {
     let opcode = read_u8(r)?;
     if opcode != CMD_REALM_LIST {
@@ -251,37 +285,42 @@ pub fn read_realm_list(r: &mut impl Read) -> Result<Vec<RealmInfo>> {
     }
     let _size = read_u16_le(r)?;
     let _header_padding = read_u32_le(r)?;
-    let number_of_realms = read_u8(r)?;
+    let number_of_realms = read_u16_le(r)?;
     let mut realms = Vec::with_capacity(number_of_realms as usize);
     for _ in 0..number_of_realms {
-        let realm_type = read_u32_le(r)?;
-        let mut flags = read_u8(r)?;
+        let realm_type = u32::from(read_u8(r)?);
+        let locked = read_u8(r)? != 0;
+        let flags = read_u8(r)?;
         let name = read_cstring(r)?;
         let address = read_cstring(r)?;
-        let mut population = read_f32_le(r)?;
+        let population = read_f32_le(r)?;
         let characters = read_u8(r)?;
         let category = read_u8(r)?;
         let id = read_u8(r)?;
-        // The sentinel swap, before anyone can average this number.
-        if let Some(&(_, rewritten, bit)) = MAGIC_POPULATIONS
-            .iter()
-            .find(|(magic, _, _)| *magic == population.to_bits())
-        {
-            population = f32::from_bits(rewritten);
-            flags |= bit;
-        }
+        let build = if flags & 0x04 != 0 {
+            Some(RealmBuild {
+                major: read_u8(r)?,
+                minor: read_u8(r)?,
+                patch: read_u8(r)?,
+                build: read_u16_le(r)?,
+            })
+        } else {
+            None
+        };
         realms.push(RealmInfo {
             name,
             address,
             population,
             characters,
             realm_type,
+            locked,
             flags,
             category,
             id,
+            build,
         });
     }
-    let _footer_padding = read_u16_le(r)?; // consume so the stream stays aligned
+    let _footer_padding = read_u16_le(r)?; // cMaNGOS emits 0x0010; consume for stream alignment
     Ok(realms)
 }
 
@@ -319,9 +358,9 @@ mod tests {
     #[test]
     fn version_proof_matches_the_realmd_expression() {
         let expected = if cfg!(target_os = "macos") {
-            "dccd0e67946fae221451513b1a59724090ff6096"
+            "11684dfad3d75e8946902fa67cdb5eff3daeef8a"
         } else {
-            "9b95cd41edd719fddf237294b8aca17010e71703"
+            "21a0059db441e3e5fca60461fa642b2574ada8f9"
         };
         let got = version_proof(&MANGOS_VERSION_CHALLENGE, &test_public_key());
         assert_eq!(
@@ -343,7 +382,7 @@ mod tests {
         let a = test_public_key();
         let m1: [u8; 20] = std::array::from_fn(|i| (i as u8).wrapping_mul(13).wrapping_add(4));
         let mut packet = Vec::new();
-        write_logon_proof(&mut packet, &a, &m1, &MANGOS_VERSION_CHALLENGE).unwrap();
+        write_logon_proof(&mut packet, &a, &m1, &MANGOS_VERSION_CHALLENGE, None).unwrap();
 
         assert_eq!(packet.len(), 1 + 32 + 20 + 20 + 1 + 1);
         assert_eq!(packet[0], CMD_AUTH_LOGON_PROOF);
@@ -359,21 +398,24 @@ mod tests {
     #[test]
     fn the_realm_list_keeps_every_field_the_wire_carries() {
         let mut body = Vec::new();
-        body.extend_from_slice(&8u32.to_le_bytes()); // realm_type: RPPVP
-        body.push(0x42); // flags: 0x02 offline | 0x40 sentinel
+        body.push(8); // realm_type/icon: RPPVP
+        body.push(1); // locked
+        body.push(0x44); // offline | specify-build | recommended
         body.extend_from_slice(b"Onyxia\0");
         body.extend_from_slice(b"127.0.0.1:8085\0");
-        body.extend_from_slice(&1.75f32.to_le_bytes()); // population
+        body.extend_from_slice(&1.75f32.to_le_bytes());
         body.push(3); // characters
         body.push(2); // category
-        body.push(9); // realm id
+        body.push(0x2c);
+        body.extend_from_slice(&[2, 4, 3]);
+        body.extend_from_slice(&8606u16.to_le_bytes());
 
         let mut packet = vec![CMD_REALM_LIST];
-        packet.extend_from_slice(&(body.len() as u16 + 3).to_le_bytes()); // size
-        packet.extend_from_slice(&0u32.to_le_bytes()); // header padding
-        packet.push(1); // number_of_realms
+        packet.extend_from_slice(&(body.len() as u16 + 8).to_le_bytes());
+        packet.extend_from_slice(&0u32.to_le_bytes());
+        packet.extend_from_slice(&1u16.to_le_bytes());
         packet.extend_from_slice(&body);
-        packet.extend_from_slice(&0u16.to_le_bytes()); // footer padding
+        packet.extend_from_slice(&0x0010u16.to_le_bytes());
 
         let realms = read_realm_list(&mut packet.as_slice()).unwrap();
         assert_eq!(realms.len(), 1);
@@ -381,48 +423,21 @@ mod tests {
         assert_eq!(r.name, "Onyxia");
         assert_eq!(r.address, "127.0.0.1:8085");
         assert_eq!(r.realm_type, 8);
-        assert_eq!(r.flags, 0x42);
+        assert!(r.locked);
+        assert_eq!(r.flags, 0x44);
         assert_eq!(r.population, 1.75);
         assert_eq!(r.characters, 3);
         assert_eq!(r.category, 2);
-        assert_eq!(r.id, 9);
+        assert_eq!(r.id, 0x2c);
+        assert_eq!(
+            r.build,
+            Some(RealmBuild {
+                major: 2,
+                minor: 4,
+                patch: 3,
+                build: 8606,
+            })
+        );
     }
 
-    /// The rewritten values are the reference parser's own, bit for bit.
-    #[test]
-    fn the_three_magic_populations_become_flags_and_are_rewritten() {
-        let one = |pop: f32| {
-            let mut body = Vec::new();
-            body.extend_from_slice(&0u32.to_le_bytes());
-            body.push(0x02); // a real wire flag, which must survive the OR
-            body.extend_from_slice(b"R\0");
-            body.extend_from_slice(b"h:1\0");
-            body.extend_from_slice(&pop.to_le_bytes());
-            body.extend_from_slice(&[0, 1, 0]);
-            let mut packet = vec![CMD_REALM_LIST];
-            packet.extend_from_slice(&(body.len() as u16 + 3).to_le_bytes());
-            packet.extend_from_slice(&0u32.to_le_bytes());
-            packet.push(1);
-            packet.extend_from_slice(&body);
-            packet.extend_from_slice(&0u16.to_le_bytes());
-            read_realm_list(&mut packet.as_slice()).unwrap().remove(0)
-        };
-
-        let recommended = one(600.0);
-        assert_eq!(recommended.flags, 0x02 | 0x20, "the wire flag survives");
-        assert_eq!(recommended.population, 0.0);
-
-        let new = one(200.0);
-        assert_eq!(new.flags, 0x02 | 0x40);
-        assert_eq!(new.population.to_bits(), 0x3a83_126f, "0.001f exactly");
-
-        let full = one(400.0);
-        assert_eq!(full.flags, 0x02 | 0x80);
-        assert_eq!(full.population, 8.0);
-
-        // An ordinary population is left alone, flags and all.
-        let plain = one(1.5);
-        assert_eq!(plain.flags, 0x02);
-        assert_eq!(plain.population, 1.5);
-    }
 }

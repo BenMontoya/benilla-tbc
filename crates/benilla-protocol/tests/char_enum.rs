@@ -38,9 +38,11 @@ fn enum_entry(
     for slot in 0..19u32 {
         b.extend_from_slice(&(1000 + slot).to_le_bytes()); // equipment display id
         b.push(slot as u8); // inventory type
+        b.extend_from_slice(&(3000 + slot).to_le_bytes()); // TBC enchant visual
     }
     b.extend_from_slice(&2000u32.to_le_bytes()); // first bag display id
     b.push(18); // first bag inventory type
+    b.extend_from_slice(&0u32.to_le_bytes()); // first bag enchant visual
     b
 }
 

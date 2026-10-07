@@ -272,7 +272,8 @@ impl CreatureCatalog {
     }
 }
 
-/// CreatureModelData.dbc: 16 fields in build 5875 (no `mountHeight`).
+/// TBC CreatureModelData.dbc: 24 fields. The original sixteen model/scale/sound slots
+/// retain their positions, followed by eight additional authored float/bounds slots.
 pub(crate) fn creature_model_data_schema() -> Schema {
     let mut s = Schema::new("CreatureModelData");
     for (name, ty) in [
@@ -295,10 +296,13 @@ pub(crate) fn creature_model_data_schema() -> Schema {
     ] {
         s.add_field(SchemaField::new(name, ty));
     }
+    for i in 16..24 {
+        s.add_field(SchemaField::new(format!("TbcModelExtra{i}"), FieldType::UInt32));
+    }
     s
 }
 
-/// CreatureDisplayInfo.dbc: 12 fields in build 5875.
+/// TBC CreatureDisplayInfo.dbc: 14 fields, including a portrait texture in field 9.
 pub(crate) fn creature_display_info_schema() -> Schema {
     let mut s = Schema::new("CreatureDisplayInfo");
     for (name, ty) in [
@@ -311,19 +315,18 @@ pub(crate) fn creature_display_info_schema() -> Schema {
         ("TextureVariation0", FieldType::String),
         ("TextureVariation1", FieldType::String),
         ("TextureVariation2", FieldType::String),
-        // Not `PortraitTextureName` (absent in 5875): a signed size class, tested for -1 at
-        // `0x625509`.
+        ("PortraitTextureName", FieldType::String),
         ("SizeClass", FieldType::UInt32),
         ("BloodLevel", FieldType::UInt32),
-        // Some maps label this BloodID, but its 5875 values (33..188) are NPC sound ids.
         ("NPCSoundID", FieldType::UInt32),
+        ("ParticleColorID", FieldType::UInt32),
     ] {
         s.add_field(SchemaField::new(name, ty));
     }
     s
 }
 
-/// CreatureDisplayInfoExtra.dbc: 19 fields, 76-byte records in 5875 (vmangos `DBCStructure.h`).
+/// TBC CreatureDisplayInfoExtra.dbc: 21 fields, 84-byte records; BakeName is field 20.
 pub(crate) fn creature_display_info_extra_schema() -> Schema {
     let mut s = Schema::new("CreatureDisplayInfoExtra");
     for (name, ty) in [
@@ -341,6 +344,8 @@ pub(crate) fn creature_display_info_extra_schema() -> Schema {
     for i in 0..10 {
         s.add_field(SchemaField::new(format!("Equipment{i}"), FieldType::UInt32));
     }
+    s.add_field(SchemaField::new("TbcExtra18", FieldType::UInt32));
+    s.add_field(SchemaField::new("TbcExtra19", FieldType::UInt32));
     s.add_field(SchemaField::new("BakeName", FieldType::String));
     s
 }
@@ -396,8 +401,8 @@ pub fn load_creature_catalog(chain: &mut Chain) -> Result<CreatureCatalog> {
                         extended_id: u32_at(r, 3).unwrap_or(0),
                         scale: f32_at(r, 4).unwrap_or(1.0),
                         textures: [str_at(&rs, r, 6), str_at(&rs, r, 7), str_at(&rs, r, 8)],
-                        blood_level: u32_at(r, 10).unwrap_or(0),
-                        size_class: u32_at(r, 9).map_or(-1, |v| v as i32),
+                        blood_level: u32_at(r, 11).unwrap_or(0),
+                        size_class: u32_at(r, 10).map_or(-1, |v| v as i32),
                         model_alpha: u32_at(r, 5).unwrap_or(255),
                     },
                 );
@@ -440,7 +445,7 @@ fn load_creature_display_info_extra(chain: &mut Chain) -> Result<HashMap<u32, Np
                     hair_color: u32_at(r, 6).unwrap_or(0) as u8,
                     facial_hair: u32_at(r, 7).unwrap_or(0) as u8,
                     equipment: std::array::from_fn(|i| u32_at(r, 8 + i).unwrap_or(0)),
-                    bake_name: str_at(&rs, r, 18),
+                    bake_name: str_at(&rs, r, 20),
                 },
             );
         }

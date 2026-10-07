@@ -60,7 +60,7 @@ pub(super) fn read_monster_move(r: &mut &[u8], on_transport: bool) -> io::Result
         let flying = spline_flags & SPLINE_FLAG_FLYING != 0;
         let run_mode = spline_flags & SPLINE_FLAG_RUNMODE != 0;
         // Both layouts ship only the points after the start, so the head's `start` leads the path.
-        let tail = read_monster_move_spline(r, flying)?;
+        let tail = read_monster_move_spline(r, flying, start)?;
         let path = if tail.is_empty() {
             Vec::new()
         } else {
@@ -84,10 +84,13 @@ pub(super) fn read_monster_move(r: &mut &[u8], on_transport: bool) -> io::Result
 /// The absolute waypoints after the start, endpoint last (vmangos `PacketBuilder`). Flying
 /// (`WriteCatmullRomPath`): a `u32` count, then that many absolute points. Ground
 /// (`WriteLinearPath`): a `u32` count, the absolute endpoint, then `count - 1` packed
-/// `endpoint - waypoint` offsets. The start is not among them: vmangos writes from
-/// `firstPoint = 1` (`MoveSplineInit.cpp:169`), and the reference decoder (`0x6018f0`) reads
-/// the same `count - 1`.
-fn read_monster_move_spline(r: &mut &[u8], catmull_rom: bool) -> io::Result<Vec<Vector3d>> {
+/// `midpoint(start, endpoint) - waypoint` offsets. TBC's `PacketBuilder::WriteLinearPath`
+/// uses the start/destination midpoint to keep 11-bit offsets within range.
+fn read_monster_move_spline(
+    r: &mut &[u8],
+    catmull_rom: bool,
+    start: Vector3d,
+) -> io::Result<Vec<Vector3d>> {
     let count = read_u32_le(r)?;
     // 0xFFFF bounds only the pre-allocation against a corrupt `count`.
     if catmull_rom {
@@ -101,14 +104,19 @@ fn read_monster_move_spline(r: &mut &[u8], catmull_rom: bool) -> io::Result<Vec<
         return Ok(Vec::new());
     }
     let endpoint = Vector3d::read(r)?;
+    let midpoint = Vector3d {
+        x: (start.x + endpoint.x) * 0.5,
+        y: (start.y + endpoint.y) * 0.5,
+        z: (start.z + endpoint.z) * 0.5,
+    };
     let mut points = Vec::with_capacity(capacity_hint(count, 0xFFFF));
     // `count == 1` is a straight hop: no offsets (vmangos: `if (last_idx > 1)`).
     for _ in 1..count {
         let off = packed_to_vector3d(read_i32_le(r)?);
         points.push(Vector3d {
-            x: endpoint.x - off.x,
-            y: endpoint.y - off.y,
-            z: endpoint.z - off.z,
+            x: midpoint.x - off.x,
+            y: midpoint.y - off.y,
+            z: midpoint.z - off.z,
         });
     }
     points.push(endpoint);
@@ -134,7 +142,7 @@ mod tests {
     }
 
     /// vmangos `WriteLinearPath` from `firstPoint = 1` over `path = [c₀, …, cₙ₋₁]`: the count
-    /// `n - 1`, the endpoint, then `c₁ … cₙ₋₂` as packed `endpoint - point` offsets.
+    /// `n - 1`, the endpoint, then `c₁ … cₙ₋₂` as packed `midpoint - point` offsets.
     fn append_linear_path(body: &mut Vec<u8>, path: &[[f32; 3]]) {
         let (&endpoint, leading) = path.split_last().expect("a path has an endpoint");
         let last_idx = path.len() - 1;
@@ -145,10 +153,12 @@ mod tests {
         if last_idx <= 1 {
             return; // vmangos `packet_builder.cpp:92`: `if (last_idx > 1)`
         }
-        // `for (i = start; i < last_idx; ++i)` with `start = 1`, packed in ¼-yd units.
+        // TBC writes midpoint(first, last) - intermediate as 11/11/10-bit ¼-yd offsets.
+        let first = leading[0];
+        let mid = std::array::from_fn::<f32, 3, _>(|i| (first[i] + endpoint[i]) * 0.5);
         for &p in &leading[1..] {
             let pack = |v: f32, shift: u32, mask: i32| ((v * 4.0).round() as i32 & mask) << shift;
-            let off = [endpoint[0] - p[0], endpoint[1] - p[1], endpoint[2] - p[2]];
+            let off = [mid[0] - p[0], mid[1] - p[1], mid[2] - p[2]];
             let packed = pack(off[0], 0, 0x7FF) | pack(off[1], 11, 0x7FF) | pack(off[2], 22, 0x3FF);
             body.extend_from_slice(&packed.to_le_bytes());
         }
@@ -260,7 +270,7 @@ mod tests {
     }
 
     /// Hand-assembled rather than through `append_linear_path`: the route `c₀ → c₁ → c₂` is
-    /// `count = 2`, the endpoint `c₂` and one packed offset `c₂ - c₁`.
+    /// `count = 2`, the endpoint `c₂` and one packed offset `midpoint(c₀,c₂) - c₁`.
     #[test]
     fn monster_move_one_corner_path_keeps_its_corner() {
         let mut body = head(0x77, [0.0, 0.0, 0.0], 0); // c₀ in the head
@@ -270,8 +280,9 @@ mod tests {
         for f in [10.0f32, 10.0, 0.0] {
             body.extend_from_slice(&f.to_le_bytes()); // endpoint c₂
         }
-        // c₂ − c₁ = (0, 10, 0): x 0, y 10·4 = 40 at bit 11, z 0 (`appendPackXYZ`'s ¼-yd fields).
-        body.extend_from_slice(&(40i32 << 11).to_le_bytes());
+        // midpoint(0,0; 10,10) − corner(10,0) = (-5,5): signed x -20, y +20 in ¼-yd.
+        let offset = ((-20i32) & 0x7FF) | (20i32 << 11);
+        body.extend_from_slice(&offset.to_le_bytes());
         let (p, tail) =
             parse_server_with_tail(opcode::SMSG_MONSTER_MOVE, &body).expect("a corner path parses");
         assert_eq!(tail, 0, "the one offset is read, not left behind");

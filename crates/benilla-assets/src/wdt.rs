@@ -2,7 +2,7 @@
 //! requesting an `.adt` (open ocean authors none), and its global WMO, the whole world on a map
 //! with no terrain.
 
-use benilla_formats::{GlobalWmo, WdtFile, WdtReader, WowVersion};
+use benilla_formats::{GlobalWmo, WdtFile, WdtReader};
 use bevy::asset::io::Reader;
 use bevy::asset::{Asset, AssetLoader, LoadContext};
 use bevy::reflect::TypePath;
@@ -43,7 +43,7 @@ impl AssetLoader for WdtIndexLoader {
     ) -> Result<WdtIndex, Self::Error> {
         let mut bytes = Vec::new();
         reader.read_to_end(&mut bytes).await?;
-        let wdt = WdtReader::new(std::io::Cursor::new(bytes), WowVersion::Classic).read()?;
+        let wdt = WdtReader::new(std::io::Cursor::new(bytes)).read()?;
         Ok(WdtIndex(wdt))
     }
 
@@ -71,7 +71,7 @@ mod tests {
         }
         buf.extend_from_slice(&grid);
 
-        let wdt = WdtReader::new(std::io::Cursor::new(buf), WowVersion::Classic)
+        let wdt = WdtReader::new(std::io::Cursor::new(buf))
             .read()
             .expect("synthetic WDT parses");
         let index = WdtIndex(wdt);

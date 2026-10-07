@@ -128,6 +128,8 @@ mod tests {
             run_back: 4.5,
             swim: 4.722_222,
             swim_back: 2.5,
+            flight: 7.0,
+            flight_back: 4.5,
             turn_rate: std::f32::consts::PI,
         }
     }

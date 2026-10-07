@@ -9,7 +9,7 @@ use std::net::TcpStream;
 use std::sync::OnceLock;
 
 use anyhow::{anyhow, Result};
-use benilla_srp::vanilla_header::{DecrypterHalf, EncrypterHalf};
+use benilla_srp::header::{DecrypterHalf, EncrypterHalf};
 
 use crate::messages::{self, ServerPacket};
 

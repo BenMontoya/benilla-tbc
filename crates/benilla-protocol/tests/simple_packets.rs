@@ -343,6 +343,8 @@ fn move_flag_ack_bodies_differ_by_the_apply_tail() {
 
     let info = MovementInfo {
         flags: 0,
+
+        flags2: 0,
         timestamp: 0x1122_3344,
         position: Vector3d {
             x: 1.0,
@@ -354,6 +356,9 @@ fn move_flag_ack_bodies_differ_by_the_apply_tail() {
         pitch: 0.0,
         fall_time: 0,
         jump: None,
+
+        spline_elevation: 0.0,
+
     };
     let root = move_flag_ack(0x2A, 7, &info, None);
     let walk = move_flag_ack(0x2A, 7, &info, Some(true));

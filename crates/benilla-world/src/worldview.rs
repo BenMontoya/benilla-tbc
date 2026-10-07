@@ -1,5 +1,5 @@
 //! `benilla-worldview`: the engine with no game attached, and the wall that keeps it that way. It
-//! boots the engine plugins with a free-fly camera over Elwynn and no server, login, UI or player,
+//! boots the engine plugins with a free-fly camera over the selected map and no server, login, UI or player,
 //! so a game concept wired back into the engine breaks it. A crate boundary alone cannot hold that
 //! line: two Bevy systems couple through a runtime resource with no symbol crossing between them.
 
@@ -17,18 +17,32 @@ use crate::build_id::BuildId;
 use crate::terrain_stream::SPAWN_XY;
 use crate::thread_qos;
 
-/// Where the viewer opens, in WoW world coords: Northshire, the client's own boot anchor
-/// ([`crate::terrain_stream::SPAWN_XY`]), so both binaries stream the same tiles.
-const VIEW_START: (f32, f32) = SPAWN_XY;
+/// Server-less default anchor in WoW coordinates. Azeroth keeps the historical Northshire pin;
+/// Outland opens in the authored Shattrath tile so `WOW_MAP=530` immediately exercises expansion
+/// terrain, doodads and WMOs without requiring a second coordinate override.
+fn default_view_start() -> [f32; 3] {
+    match crate::world_map::serverless_map_id() {
+        530 => {
+            let (north, west) = benilla_formats::tile_to_world(21, 35);
+            [
+                north - benilla_formats::TILE_SIZE * 0.5,
+                west - benilla_formats::TILE_SIZE * 0.5,
+                VIEW_OPEN_Z,
+            ]
+        }
+        _ => [SPAWN_XY.0, SPAWN_XY.1, VIEW_OPEN_Z],
+    }
+}
 
 /// Height above the spawn point the camera opens at, in yards.
 const VIEW_START_HEIGHT: f32 = 60.0;
 
 /// `WOW_WORLDVIEW_AT=<x>,<y>[,<z>]` opens the viewer elsewhere (raw WoW coords, `z` defaulting to
-/// [`VIEW_OPEN_Z`]); unparseable or absent stays at [`VIEW_START`], which must remain the default.
+/// [`VIEW_OPEN_Z`]); absent stays at the selected map's default anchor.
 fn view_start() -> [f32; 3] {
+    let default = default_view_start();
     let Some(v) = std::env::var("WOW_WORLDVIEW_AT").ok() else {
-        return [VIEW_START.0, VIEW_START.1, VIEW_OPEN_Z];
+        return default;
     };
     let c: Vec<f32> = v.split(',').filter_map(|p| p.trim().parse().ok()).collect();
     match c.len() {
@@ -36,12 +50,12 @@ fn view_start() -> [f32; 3] {
         3 => [c[0], c[1], c[2]],
         _ => {
             warn!("worldview: WOW_WORLDVIEW_AT wants `x,y[,z]` — staying at the default anchor");
-            [VIEW_START.0, VIEW_START.1, VIEW_OPEN_Z]
+            default
         }
     }
 }
 
-/// The look-at height when `WOW_WORLDVIEW_AT` names no `z`, clear of the Northshire valley floor.
+/// The look-at height when `WOW_WORLDVIEW_AT` names no `z`, high enough for a free-fly overview.
 const VIEW_OPEN_Z: f32 = 100.0;
 
 /// Near plane in yards: the `nearclip` CVar's default, since the viewer has no CVar table.
@@ -266,6 +280,12 @@ struct ViewCam {
 fn spawn_view_camera(mut commands: Commands, msaa: Res<crate::view::MsaaSetting>) {
     let start = wow_to_bevy(view_start());
     let far = crate::view::CAM_FAR;
+    let transform =
+        Transform::from_translation(start + Vec3::new(0.0, VIEW_START_HEIGHT, VIEW_START_HEIGHT))
+            .looking_at(start, Vec3::Y);
+    // `fly` rewrites the rotation every Update, so seed its Euler state from the authored startup
+    // look rather than snapping to unrelated hard-coded yaw/pitch values on frame 1.
+    let (yaw, pitch, _) = transform.rotation.to_euler(EulerRot::YXZ);
     commands.spawn((
         Camera3d::default(),
         crate::view::WorldCamera,
@@ -279,11 +299,10 @@ fn spawn_view_camera(mut commands: Commands, msaa: Res<crate::view::MsaaSetting>
         Hdr,
         Tonemapping::None,
         crate::ffx_glow::FfxGlow::WORLD,
-        Transform::from_translation(start + Vec3::new(0.0, VIEW_START_HEIGHT, VIEW_START_HEIGHT))
-            .looking_at(start, Vec3::Y),
+        transform,
         ViewCam {
-            yaw: 0.0,
-            pitch: -0.5,
+            yaw,
+            pitch,
             speed: 100.0,
         },
     ));

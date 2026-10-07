@@ -18,7 +18,7 @@ use crate::glue::art::{
     tc_rect, GlueArt, ALLIANCE_BORDER, ALLIANCE_FILL, BACKDROP, BTN_BG, DIM, GOLD, INFO_TEXT,
 };
 use crate::glue::widgets::{
-    abs, dial_arrow, glue_button, icon_button, outlined_text, ArtSwap, FallbackFace, GlueBtnKind,
+    abs, dial_arrow, glue_button, icon_button, icon_button_sized, outlined_text, ArtSwap, FallbackFace, GlueBtnKind,
     GlueText, Hilight,
 };
 
@@ -260,7 +260,9 @@ fn left_tower(
                 );
             }
 
-            // Two columns of 48² buttons at (33,68) and (127,68), row pitch 48+5.
+            // TBC has five races per faction. 40px icons with 3px gaps occupy roughly the
+            // same tower height as the original four 48px rows, leaving the gender/class
+            // and customization controls in their existing layout.
             for (faction, left) in [(ALLIANCE, 33.0), (HORDE, 127.0)] {
                 tower
                     .spawn((Node {
@@ -268,12 +270,12 @@ fn left_tower(
                         left: px(left),
                         top: px(68.0),
                         flex_direction: FlexDirection::Column,
-                        row_gap: px(5.0),
+                        row_gap: px(3.0),
                         ..default()
                     },))
                     .with_children(|col| {
                         for race in faction {
-                            icon_button(
+                            icon_button_sized(
                                 col,
                                 font,
                                 CreateAction::Race(race),
@@ -283,6 +285,7 @@ fn left_tower(
                                 race_name(race),
                                 art,
                                 s,
+                                40.0,
                             );
                         }
                     });

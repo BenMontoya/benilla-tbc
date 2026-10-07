@@ -21,9 +21,11 @@ fn fixture() -> Vec<RealmInfo> {
             population,
             characters,
             realm_type,
+            locked: false,
             flags: 0,
             category,
             id: 0,
+            build: None,
         };
     vec![
         realm("Amberfield", 1, 0, 0.5, 2),

@@ -111,28 +111,35 @@ fn quat_rotate_z(q: [f32; 4]) -> [f32; 3] {
     ]
 }
 
-fn track_first_quat(bytes: &[u8], track: usize) -> Option<[f32; 4]> {
+fn track_first_bone_quat(bytes: &[u8], track: usize) -> Option<[f32; 4]> {
     let nval = bytes.u32_at(track + 0x14)? as usize;
     let ofs = bytes.u32_at(track + 0x18)? as usize;
     if nval == 0 {
         return None;
     }
+    let component = |at| {
+        bytes
+            .u16_at(at)
+            .map(|v| (f32::from(v) - 32767.0) / 32767.0)
+    };
     Some([
-        bytes.f32_at(ofs)?,
-        bytes.f32_at(ofs + 4)?,
-        bytes.f32_at(ofs + 8)?,
-        bytes.f32_at(ofs + 12)?,
+        component(ofs)?,
+        component(ofs + 2)?,
+        component(ofs + 4)?,
+        component(ofs + 6)?,
     ])
 }
 
 /// A bone's model-space +Z at the track origin, its first rotation keys composed up the parent
-/// chain. Bone table `count@0x34`/`ofs@0x38`, stride `0x6c`: flags `u32@4` (`0x04` keeps the
-/// root's orientation), parent `i16@8`, rotation `@0x28`. Rotation animation is not applied.
+/// chain. TBC bone table `count@0x34`/`ofs@0x38`; every admitted v260–v263 file uses the same
+/// 112-byte record and packed rotation layout.
+/// Rotation animation is not applied.
 fn bone_z_axis(bytes: &[u8], bone: i16) -> [f32; 3] {
     let (Some(count), Some(ofs)) = (bytes.u32_at(0x34), bytes.u32_at(0x38)) else {
         return [0.0, 0.0, 1.0];
     };
     let (count, ofs) = (count as usize, ofs as usize);
+    let layout = super::BONE_LAYOUT;
     // Local rotations leaf to root, bounded by the bone count.
     let mut chain: Vec<[f32; 4]> = Vec::new();
     let mut idx = bone;
@@ -140,8 +147,11 @@ fn bone_z_axis(bytes: &[u8], bone: i16) -> [f32; 3] {
         if idx < 0 || idx as usize >= count {
             break;
         }
-        let rec = ofs + idx as usize * 0x6c;
-        if let Some(q) = track_first_quat(bytes, rec + 0x28) {
+        let rec = ofs + idx as usize * layout.stride;
+        if rec + layout.stride > bytes.len() {
+            break;
+        }
+        if let Some(q) = track_first_bone_quat(bytes, rec + layout.rotation) {
             chain.push(q);
         }
         let flags = bytes.u32_at(rec + 4).unwrap_or(0);
@@ -310,7 +320,8 @@ mod tests {
             |b: &mut Vec<u8>, at: usize, v: u32| b[at..at + 4].copy_from_slice(&v.to_le_bytes());
         let put_quat = |b: &mut Vec<u8>, at: usize, q: [f32; 4]| {
             for (i, c) in q.iter().enumerate() {
-                b[at + 4 * i..at + 4 * i + 4].copy_from_slice(&c.to_le_bytes());
+                let packed = (c * 32767.0 + 32767.0).round().clamp(0.0, 65535.0) as u16;
+                b[at + 2 * i..at + 2 * i + 2].copy_from_slice(&packed.to_le_bytes());
             }
         };
         let bones = 0x100;
@@ -319,14 +330,14 @@ mod tests {
         let s = std::f32::consts::FRAC_1_SQRT_2;
         // Bone 0 (root): parent −1, rotation 90° about +X.
         put_u32(&mut b, bones + 8, 0xffff); // parent i16 −1 (submesh u16 slot unused)
-        put_u32(&mut b, bones + 0x28 + 0x14, 1);
-        put_u32(&mut b, bones + 0x28 + 0x18, 0x300);
+        put_u32(&mut b, bones + 0x2c + 0x14, 1);
+        put_u32(&mut b, bones + 0x2c + 0x18, 0x300);
         put_quat(&mut b, 0x300, [s, 0.0, 0.0, s]);
         // Bone 1: parent 0, local rotation 90° about +Z.
-        let r1 = bones + 0x6c;
+        let r1 = bones + 0x70;
         put_u32(&mut b, r1 + 8, 0); // parent 0
-        put_u32(&mut b, r1 + 0x28 + 0x14, 1);
-        put_u32(&mut b, r1 + 0x28 + 0x18, 0x340);
+        put_u32(&mut b, r1 + 0x2c + 0x14, 1);
+        put_u32(&mut b, r1 + 0x2c + 0x18, 0x340);
         put_quat(&mut b, 0x340, [0.0, 0.0, s, s]);
         b
     }
@@ -337,10 +348,10 @@ mod tests {
     fn bone_z_axis_composes_parent_then_local() {
         let b = two_bone_chain();
         let root = bone_z_axis(&b, 0);
-        assert!((root[0]).abs() < 1e-6 && (root[1] + 1.0).abs() < 1e-6 && root[2].abs() < 1e-6);
+        assert!((root[0]).abs() < 1e-4 && (root[1] + 1.0).abs() < 1e-4 && root[2].abs() < 1e-4);
         let child = bone_z_axis(&b, 1);
         for (c, r) in child.iter().zip(root) {
-            assert!((c - r).abs() < 1e-6, "child {child:?} vs root {root:?}");
+            assert!((c - r).abs() < 1e-4, "child {child:?} vs root {root:?}");
         }
         // No rotation keys anywhere: identity +Z.
         assert_eq!(bone_z_axis(&vec![0u8; 0x400], 0), [0.0, 0.0, 1.0]);

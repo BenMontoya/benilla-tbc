@@ -395,6 +395,7 @@ fn unit_living_block_surfaces_on_transport_rider_pose() {
                         z: 0.5,
                     },
                     orientation: 0.25,
+                    time: 0,
                 }),
                 "the ON_TRANSPORT tail surfaces as the rider's local pose"
             );

@@ -356,6 +356,7 @@ pub(super) fn wire_transport(player: &Player) -> Option<TransportPose> {
                 z: local[2],
             },
             orientation: (player.face_yaw - r.boat_yaw).rem_euclid(std::f32::consts::TAU),
+            time: 0,
         }
     })
 }

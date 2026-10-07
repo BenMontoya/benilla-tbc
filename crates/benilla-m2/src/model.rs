@@ -89,7 +89,8 @@ impl M2BoneFlags {
     }
 }
 
-/// One M2 bone: keyBoneId i32 @+0x00, flags @+0x04, parent i16 @+0x08, pivot C3 @+0x60.
+/// One TBC M2 bone: keyBoneId i32 @+0x00, flags @+0x04, parent i16 @+0x08,
+/// `boneNameCRC` @+0x0c and pivot C3 @+0x64.
 pub struct M2Bone {
     /// `KeyBoneID`, `-1` for none: 0/1 arms L/R, 2/3 shoulders L/R, 4 spine low, 5 waist, 6 head…
     pub key_bone: i16,
@@ -137,7 +138,9 @@ pub struct M2Header {
 }
 
 /// A PlayableAnimationLookup row (`0x711bf0`, header `+0x2c`): the id this model plays for a
-/// requested `AnimationData.dbc` id, and a direction code. Every 1.12.1 model has 203 rows.
+/// requested `AnimationData.dbc` id, and a direction code. In stock 2.4.3 the authored array count
+/// is model-specific: character/v260 models commonly retain 203 rows even though AnimationData has
+/// 226, while some v263 props author only the entries they need.
 #[derive(Clone, Copy)]
 pub struct M2PlayableAnim {
     /// The `AnimationData.dbc` id this model plays for the row's requested id.
@@ -147,7 +150,7 @@ pub struct M2PlayableAnim {
     pub dir_flags: u16,
 }
 
-/// One attachment point: a 48-byte vanilla record, `id` and `bone` narrowed to `u16`. On character
+/// One attachment point: a 48-byte pre-Wrath record, `id` and `bone` narrowed to `u16`. On character
 /// models `position` equals the attach bone's pivot. Ids: 0 shield (left forearm), 1 right hand,
 /// 2 left hand, 26/27 right/left back sheath, 28 shield back, 30/31 lower back, 32/33 hips.
 #[derive(Clone, Copy)]
@@ -255,7 +258,6 @@ pub struct M2Model {
     pub playable_animation_lookup: Vec<M2PlayableAnim>,
     /// The embedded skin profiles' `(count, file_offset)`.
     pub(crate) views: (u32, u32),
-    pub(crate) version: u32,
 }
 
 impl M2Model {

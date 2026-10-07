@@ -7,6 +7,8 @@ use anyhow::Result;
 
 use crate::Chain;
 
+pub(crate) use benilla_m2::BONE_LAYOUT;
+
 mod anim;
 mod anim_summary;
 mod art_extent;

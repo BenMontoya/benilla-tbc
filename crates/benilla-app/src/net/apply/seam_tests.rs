@@ -25,6 +25,8 @@ fn create() -> SessionEvent {
             run_back: 4.5,
             swim: 4.7,
             swim_back: 2.5,
+            flight: 7.0,
+            flight_back: 4.5,
             turn_rate: std::f32::consts::PI,
         }),
         mover: None,
@@ -196,6 +198,8 @@ fn a_force_change_beats_a_create_from_the_same_frame() {
             run_back: 4.5,
             swim: 4.7,
             swim_back: 2.5,
+            flight: 7.0,
+            flight_back: 4.5,
             turn_rate: std::f32::consts::PI,
         }
     };
@@ -217,6 +221,8 @@ fn a_create_after_a_change_replaces_it() {
         run_back: 4.5,
         swim: 4.7,
         swim_back: 2.5,
+        flight: 7.0,
+        flight_back: 4.5,
         turn_rate: std::f32::consts::PI,
     };
     let mounted = MoveSpeeds {
@@ -241,6 +247,8 @@ fn a_change_on_a_live_mover_keeps_its_other_slots() {
         run_back: 4.5,
         swim: 4.7,
         swim_back: 2.5,
+        flight: 7.0,
+        flight_back: 4.5,
         turn_rate: std::f32::consts::PI,
     };
     let s = speeds_after(vec![create_with_speeds(Some(on_foot)), force_run(11.2)])

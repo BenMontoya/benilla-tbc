@@ -1,5 +1,5 @@
 //! The resolved lighting type, [`Atmosphere`], and the names of the `LightIntBand` and
-//! `LightFloatBand` rows and `LightParams` fields it is read from, in the vanilla layout.
+//! `LightFloatBand` rows and `LightParams` fields it is read from, in the 2.4.3 layout.
 
 /// `LightIntBand` row indices, 0-based within a param's 18 rows.
 pub(super) const IB_DIFFUSE: u32 = 0;
@@ -27,7 +27,7 @@ pub(super) const FB_FOG_START_MULT: u32 = 1;
 pub(super) const FB_CLOUD_DENSITY: u32 = 3;
 
 /// `LightParams.dbc` field of the glow, the bloom composite weight: the reference reads record byte
-/// `+0x10`, field 4, not the `+0x0C` the wiki labels `m_glow`, which is 0 in every vanilla row.
+/// `+0x10`, field 4; `cloudTypeID` at `+0x0C` is zero in every stock 2.4.3 row.
 pub(super) const LP_GLOW: usize = 4;
 
 /// `LightParams.dbc` field of the highlightSky flag, record byte `+0x04`: an int 0/1 the sky-dome
@@ -35,9 +35,9 @@ pub(super) const LP_GLOW: usize = 4;
 pub(super) const LP_HIGHLIGHT: usize = 1;
 
 /// `LightParams.dbc` field of lightSkyboxID, record byte `+0x08`: the `LightSkybox.dbc` model that
-/// replaces the celestial pass. The reference fills `[0xce9bb4]` (`0x6d2260` at `0x6d26cb`) only
-/// while `0x6d4620` has set the ghost override `[0xce9bb0]`; the 5 non-zero rows are all
-/// `DeathClouds.mdx`.
+/// replaces or overlays the authored sky. Unlike 5875, stock 2.4.3 has many non-death rows using
+/// Outland skyboxes; the death slot remains `DeathClouds.mdx`, while normal-slot integration is a
+/// separate renderer path that still needs porting.
 pub(super) const LP_SKYBOX: usize = 2;
 
 /// `LightParams.dbc` fields 5 to 8, after the glow: the water-blend alphas, the depth-alpha

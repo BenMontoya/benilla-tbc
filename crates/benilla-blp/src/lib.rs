@@ -1,4 +1,4 @@
-//! A BLP2 texture decoder for WoW 1.12.1, which ships Direct content in three shapes:
+//! A BLP2 texture decoder for Burning Crusade 2.4.3, which ships client art in three shapes:
 //! - Raw1: a 256-entry BGRA palette and 1-byte indices, then a 0, 1, 4 or 8-bit alpha block.
 //! - Raw3: uncompressed BGRA8.
 //! - DXTC: S3TC blocks, `alpha_type` selecting DXT1 (0), DXT3 (1) or DXT5 (7).
@@ -8,7 +8,7 @@
 
 use benilla_bytes::ByteExt;
 
-/// A BLP decode error: anything outside the 1.12 BLP2 envelope.
+/// A BLP decode error: anything outside the supported 2.4.3 BLP2 envelope.
 #[derive(Debug)]
 pub enum Error {
     NotBlp2,
@@ -18,7 +18,7 @@ pub enum Error {
     OutOfBounds {
         level: usize,
     },
-    /// The header's dimensions exceed [`MAX_DIM`], which no real 1.12 BLP comes near.
+    /// The header's dimensions exceed [`MAX_DIM`], which no real 2.4.3 BLP comes near.
     DimensionsTooLarge {
         width: u32,
         height: u32,
@@ -71,7 +71,8 @@ impl DecodedBlp {
 const HEADER_SIZE: usize = 148; // magic..=mip_sizes[16]
 const PALETTE_SIZE: usize = 256 * 4;
 
-/// A cap on the header's dimensions, which size the buffers (1.12 art stops at 1024×1024).
+/// A conservative cap on header dimensions before they size decode buffers; stock 2.4.3 art is
+/// comfortably below it.
 const MAX_DIM: u32 = 8192;
 
 fn mip_chain_count(width: u32, height: u32, has_mipmaps: bool) -> usize {
@@ -177,7 +178,7 @@ fn parse_header(bytes: &[u8]) -> Result<Header<'_>> {
     if bytes.len() < HEADER_SIZE || &bytes[0..4] != b"BLP2" {
         return Err(Error::NotBlp2);
     }
-    // `content` @4 is unread: 1.12 ships only Direct (1).
+    // `content` @4 is unread: stock 2.4.3 client art uses Direct (1).
     let compression = bytes.u8_at(8).ok_or(Error::Truncated("header"))?;
     let alpha_bits = bytes.u8_at(9).ok_or(Error::Truncated("header"))? as u32;
     let alpha_type = bytes.u8_at(10).ok_or(Error::Truncated("header"))?;

@@ -805,6 +805,8 @@ mod under_floor {
                 run_back: 2.0,
                 swim: 2.0,
                 swim_back: 2.0,
+                flight: 7.0,
+                flight_back: 4.5,
                 turn_rate: 0.0,
             },
         ));

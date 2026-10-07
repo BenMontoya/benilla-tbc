@@ -60,6 +60,8 @@ fn the_walk_bit_reaches_the_clip_through_the_speed_and_nothing_else() {
         run_back: 4.5,
         swim: 4.722,
         swim_back: 2.5,
+        flight: 7.0,
+        flight_back: 4.5,
         turn_rate: std::f32::consts::PI,
     };
     let gait = |flags: u32| {

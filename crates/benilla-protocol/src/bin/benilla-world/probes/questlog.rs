@@ -176,7 +176,7 @@ impl Probe for QuestLog {
         let count_state_word = |sf: &Option<benilla_protocol::messages::ObjectFields>| {
             sf.as_ref().and_then(|sf| {
                 sf.raw_fields()
-                    .find(|&(idx, _)| idx == FIELD_PLAYER_QUEST_LOG_1_1 + 3 * u16::from(slot) + 1)
+                    .find(|&(idx, _)| idx == FIELD_PLAYER_QUEST_LOG_1_1 + 4 * u16::from(slot) + 1)
                     .map(|(_, v)| v)
             })
         };

@@ -36,9 +36,9 @@ pub fn load_exploration_sound_catalog(chain: &mut Chain) -> Result<ExplorationSo
         .read_file(CHR_RACES)
         .with_context(|| format!("reading {CHR_RACES}"))?;
     let mut schema = Schema::new("ChrRaces");
-    for i in 0..29 {
+    for i in 0..69 {
         let ty = match i {
-            15 | 26 | 27 | 28 => FieldType::String,
+            12 | 65 | 66 | 67 => FieldType::String,
             _ => FieldType::UInt32,
         };
         schema.add_field(SchemaField::new(format!("f{i}"), ty));

@@ -1,16 +1,14 @@
-//! The 1.12 world-packet header obfuscation. After `CMSG_AUTH_SESSION` every header, not the body,
-//! runs through a byte cipher keyed by the 40-byte session key, `i` cycling over the key and
-//! `last_c` the previous ciphertext byte, both starting at 0:
+//! The Burning Crusade 2.4.3 world-packet header obfuscation. After `CMSG_AUTH_SESSION` every
+//! header, not the body, runs through the pre-Wrath rolling byte cipher. TBC first derives a
+//! 20-byte header key as HMAC-SHA1 over the SRP session key using the fixed 16-byte client/server
+//! seed; the rolling state then starts at zero:
 //!
 //! ```text
 //! encrypt: c = (p ^ key[i]) + last_c ;  decrypt: p = (c - last_c) ^ key[i]
 //! ```
 //!
-//! Client headers are 6 bytes (`u16` BE size, `u32` LE opcode); server headers are always 4
-//! (`u16` BE size, `u16` LE opcode). vmangos writes every header as
-//! `ServerPktHeader { uint16 size; uint16 cmd; }`, truncating a larger size (`WorldSocket.cpp`),
-//! and sends big object updates as `SMSG_COMPRESSED_UPDATE_OBJECT`; the 3-byte large-packet size
-//! is a later expansion's.
+//! Client headers are 6 bytes (`u16` BE size, `u32` LE opcode); server headers are 4 bytes
+//! (`u16` BE size, `u16` LE opcode).
 
 use std::io::{Read, Write};
 
@@ -23,6 +21,52 @@ use crate::{NormalizedString, SESSION_KEY_LENGTH};
 pub const CLIENT_HEADER_LENGTH: usize = 6;
 /// Server world-header length: `u16` size + `u16` opcode.
 pub const SERVER_HEADER_LENGTH: usize = 4;
+const HEADER_KEY_LENGTH: usize = 20;
+
+/// TBC's fixed HMAC-SHA1 key for the world header cipher. cMaNGOS calls this the receive seed
+/// because it derives the key used to decrypt client headers; the stock client derives the same
+/// key for both directions.
+const HEADER_HMAC_SEED: [u8; 16] = [
+    0x38, 0xA7, 0x83, 0x15, 0xF8, 0x92, 0x25, 0x30, 0x71, 0x98, 0x67, 0xB1, 0x8C, 0x04, 0xE2, 0xAA,
+];
+
+fn hmac_sha1(key: &[u8], data: &[u8]) -> [u8; HEADER_KEY_LENGTH] {
+    const BLOCK: usize = 64;
+    let mut key_block = [0u8; BLOCK];
+    if key.len() > BLOCK {
+        let digest: [u8; 20] = Sha1::digest(key).into();
+        key_block[..digest.len()].copy_from_slice(&digest);
+    } else {
+        key_block[..key.len()].copy_from_slice(key);
+    }
+
+    let mut inner_pad = [0x36u8; BLOCK];
+    let mut outer_pad = [0x5cu8; BLOCK];
+    for i in 0..BLOCK {
+        inner_pad[i] ^= key_block[i];
+        outer_pad[i] ^= key_block[i];
+    }
+
+    let mut inner = Sha1::new();
+    inner.update(inner_pad);
+    inner.update(data);
+    let inner_digest = inner.finalize();
+
+    let mut outer = Sha1::new();
+    outer.update(outer_pad);
+    outer.update(inner_digest);
+    outer.finalize().into()
+}
+
+fn header_key(session_key: &[u8; SESSION_KEY_LENGTH]) -> [u8; HEADER_KEY_LENGTH] {
+    // cMaNGOS stores K as a little-endian BigNumber and HMACs its minimal-width byte array.
+    // Mirror that exactly so a rare high-order zero byte cannot desynchronize the header cipher.
+    let used = session_key
+        .iter()
+        .rposition(|&b| b != 0)
+        .map_or(0, |i| i + 1);
+    hmac_sha1(&HEADER_HMAC_SEED, &session_key[..used])
+}
 
 /// `world_server_proof = SHA1( user | 0u32 | client_seed | server_seed | K )`.
 fn world_server_proof(
@@ -43,7 +87,7 @@ fn world_server_proof(
 /// The header cipher's encrypting half, for the write side of a split connection.
 #[derive(Debug, Clone)]
 pub struct EncrypterHalf {
-    session_key: [u8; SESSION_KEY_LENGTH],
+    key: [u8; HEADER_KEY_LENGTH],
     index: u8,
     previous: u8,
 }
@@ -53,8 +97,8 @@ impl EncrypterHalf {
     pub fn encrypt(&mut self, data: &mut [u8]) {
         for byte in data {
             let encrypted =
-                (*byte ^ self.session_key[self.index as usize]).wrapping_add(self.previous);
-            self.index = (self.index + 1) % SESSION_KEY_LENGTH as u8;
+                (*byte ^ self.key[self.index as usize]).wrapping_add(self.previous);
+            self.index = (self.index + 1) % HEADER_KEY_LENGTH as u8;
             *byte = encrypted;
             self.previous = encrypted;
         }
@@ -83,7 +127,7 @@ impl EncrypterHalf {
 /// The header cipher's decrypting half, for the read side of a split connection.
 #[derive(Debug, Clone)]
 pub struct DecrypterHalf {
-    session_key: [u8; SESSION_KEY_LENGTH],
+    key: [u8; HEADER_KEY_LENGTH],
     index: u8,
     previous: u8,
 }
@@ -94,14 +138,14 @@ impl DecrypterHalf {
         for byte in data {
             let encrypted = *byte;
             let decrypted =
-                encrypted.wrapping_sub(self.previous) ^ self.session_key[self.index as usize];
-            self.index = (self.index + 1) % SESSION_KEY_LENGTH as u8;
+                encrypted.wrapping_sub(self.previous) ^ self.key[self.index as usize];
+            self.index = (self.index + 1) % HEADER_KEY_LENGTH as u8;
             self.previous = encrypted;
             *byte = decrypted;
         }
     }
 
-    /// Decrypt a 4-byte server header; 1.12 has no wider-size variant.
+    /// Decrypt a 2.4.3 4-byte server header.
     pub fn decrypt_server_header(&mut self, mut data: [u8; SERVER_HEADER_LENGTH]) -> ServerHeader {
         self.decrypt(&mut data);
         ServerHeader {
@@ -156,14 +200,15 @@ impl HeaderCrypto {
     }
 
     fn new(session_key: [u8; SESSION_KEY_LENGTH]) -> Self {
+        let key = header_key(&session_key);
         Self {
             encrypt: EncrypterHalf {
-                session_key,
+                key,
                 index: 0,
                 previous: 0,
             },
             decrypt: DecrypterHalf {
-                session_key,
+                key,
                 index: 0,
                 previous: 0,
             },

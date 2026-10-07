@@ -1,6 +1,8 @@
-//! A read-only MPQ reader for the 1.12.1 `Data/` chain: format V1/V2, every file stored whole or
-//! `COMPRESS`-flagged and sectored, no encrypted or single-unit files, no PTCH patches. Anything
-//! else is a hard error.
+//! A read-only MPQ reader for the Burning Crusade 2.4.3 `Data/` chain. Stock game-data archives
+//! use MPQ version 1 headers with zero high-offset extensions, and their live files are stored or
+//! `COMPRESS`-flagged/sectored; encrypted, implode-only and single-unit files do not occur in the
+//! mounted game chain. Updater-only `base-*` / `backup-*` archives are deliberately not mounted.
+//! Unsupported storage shapes remain hard errors rather than guesses.
 //!
 //! The patch archives carry delete markers (flag `0x02000000`, size 0): the path is deleted from
 //! the composite chain. [`Archive::contains`] reports one present and [`Archive::read_file`]
@@ -58,7 +60,7 @@ struct BlockEntry {
 /// An archive's index, parsed once and immutable, shared behind an `Arc`.
 struct Index {
     path: PathBuf,
-    /// Byte offset of the MPQ header in the file: 0 in 1.12 data, but found, not assumed.
+    /// Byte offset of the MPQ header in the file; found rather than assumed to be zero.
     archive_offset: u64,
     /// The uncompressed sector size, `512 << block_size`.
     sector_size: usize,
@@ -72,13 +74,13 @@ pub struct Archive {
     index: Arc<Index>,
 }
 
-/// A read error; anything outside the 1.12.1 envelope surfaces here.
+/// A read error; unsupported MPQ storage modes surface here rather than being guessed.
 #[derive(Debug)]
 pub enum Error {
     Io(io::Error),
     NotMpq,
     NotFound(String),
-    /// A file or codec shape 1.12.1 data does not contain.
+    /// A file or codec shape this reader does not support.
     Unsupported(String),
     Decompress(String),
     /// A count or length claims more than the archive file holds: a corrupt or truncated archive.
@@ -91,7 +93,7 @@ impl std::fmt::Display for Error {
             Error::Io(e) => write!(f, "io: {e}"),
             Error::NotMpq => write!(f, "not an MPQ archive (no header signature found)"),
             Error::NotFound(n) => write!(f, "file not in archive: {n}"),
-            Error::Unsupported(m) => write!(f, "unsupported (outside 1.12.1 envelope): {m}"),
+            Error::Unsupported(m) => write!(f, "unsupported MPQ storage mode: {m}"),
             Error::Decompress(m) => write!(f, "decompress: {m}"),
             Error::Corrupt(m) => write!(f, "corrupt archive: {m}"),
         }
@@ -130,8 +132,8 @@ impl Archive {
 
         let archive_offset = find_header(&mut file, file_len)?;
 
-        // The 32-byte V1 header: later versions only extend it, and every 1.12 table offset fits
-        // a `u32`, so the V2 hi-block table is never needed.
+        // The 32-byte V1 header: later versions only extend it, and the 2.4.3 archives used here fit
+        // their table offsets in `u32`, so the V2 hi-block table is not needed.
         file.seek(SeekFrom::Start(archive_offset))?;
         let mut hdr = [0u8; 32];
         file.read_exact(&mut hdr)?;
@@ -139,7 +141,7 @@ impl Archive {
         debug_assert_eq!(signature, SIGNATURE);
         let block_size_shift = hdr.u16_at(14).ok_or(Error::NotMpq)?;
         // A raw header `u16`, capped before `512 << shift` can overflow; 1.12 data uses 3 (4 KiB
-        // sectors), and 23 is already 4 GiB.
+        // sectors on the stock client), and 23 is already 4 GiB.
         if block_size_shift > 23 {
             return Err(Error::Corrupt(format!(
                 "block size shift {block_size_shift} exceeds the sanity cap"
@@ -217,7 +219,7 @@ impl Archive {
         if block.flags & FLAG_DELETE_MARKER != 0 {
             return Err(Error::NotFound(name.into()));
         }
-        // Outside the 1.12.1 envelope: refuse rather than guess.
+        // Unsupported storage modes: refuse rather than guess.
         if block.flags & FLAG_ENCRYPTED != 0 {
             return Err(Error::Unsupported(format!("encrypted file {name}")));
         }
@@ -364,7 +366,7 @@ impl ArchiveFile {
             raw.truncate(want);
             raw
         } else if self.implode_only {
-            // IMPLODE sectors carry no method byte; 1.12.1 data has none.
+            // IMPLODE sectors carry no method byte. Stock mounted 2.4.3 game archives have none.
             decompress(0x08, &raw, want, name)?
         } else {
             // COMPRESS: the leading byte is the codec mask, the rest the payload.
@@ -525,7 +527,8 @@ fn read_hash_table(
             HashEntry {
                 name_a: words[o],
                 name_b: words[o + 1],
-                // words[o + 2] is locale and platform, unread: 1.12.1 data is locale-neutral.
+                // words[o + 2] is locale/platform. The selected 2.4.3 locale archives contain the
+                // winning game-data entries as neutral/default records, so filename hashes decide.
                 block_index: words[o + 3],
             }
         })
@@ -567,7 +570,8 @@ fn read_block_table(
         .collect())
 }
 
-/// Decompress one sector by its codec mask; 1.12.1 data uses zlib alone.
+/// Decompress one sector by its codec mask. The stock 2.4.3 game-data files exercised by the
+/// renderer use zlib (`0x02`); unsupported codecs fail explicitly.
 fn decompress(method: u8, data: &[u8], expected: usize, name: &str) -> Result<Vec<u8>> {
     match method {
         0x02 => {

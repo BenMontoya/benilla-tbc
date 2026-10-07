@@ -163,13 +163,13 @@ impl ObjectFields {
     pub fn unit_level(&self) -> Option<u32> {
         self.get_u32(FIELD_UNIT_LEVEL)
     }
-    /// One aura slot, live only when its `AURAFLAGS` nibble has an effect bit (`& 0x0E`) as the
+    /// One aura slot, live only when its `AURAFLAGS` byte has an effect bit (`& 0x07`) as the
     /// client tests it, since a cleared slot can keep a stale spell id.
     pub fn unit_aura(&self, slot: u8) -> Option<UnitAuraSlot> {
         if slot >= UNIT_AURA_SLOTS {
             return None;
         }
-        let flags = self.get_aura_nibble(slot);
+        let flags = self.get_aura_byte(FIELD_UNIT_AURAFLAGS, slot);
         if flags & AURA_FLAG_EFF_INDEX_MASK == 0 {
             return None;
         }
@@ -187,7 +187,7 @@ impl ObjectFields {
                 .saturating_add(1),
         })
     }
-    /// Live auras by ascending slot, buffs 0-31 then debuffs 32-47: the order `UnitBuff` and
+    /// Live auras by ascending slot, buffs 0-39 then debuffs 40-55: the order `UnitBuff` and
     /// `UnitDebuff` read another unit in (`0x519500`, `0x5198f0`). The local player's buff bar
     /// keeps insertion order in a packed cache (`0xbc6040`) instead, which this cannot recover.
     pub fn unit_auras(&self) -> impl Iterator<Item = UnitAuraSlot> + '_ {

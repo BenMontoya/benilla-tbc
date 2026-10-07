@@ -263,8 +263,8 @@ pub(crate) fn char_hair_geosets_schema() -> Schema {
     s
 }
 
-/// HelmetGeosetVisData.dbc: 6 fields, 0x18-byte records (loader `0x546f00`); the five masks are
-/// race bitmasks (`0x4799a0`).
+/// TBC HelmetGeosetVisData.dbc: 8 fields. The five existing race masks retain
+/// their offsets; two additional trailing fields are present in stock 8606.
 pub(crate) fn helmet_vis_schema() -> Schema {
     let mut s = Schema::new("HelmetGeosetVisData");
     for (name, ty) in [
@@ -274,13 +274,15 @@ pub(crate) fn helmet_vis_schema() -> Schema {
         ("HideFacial2", FieldType::UInt32),
         ("HideFacial3", FieldType::UInt32),
         ("HideEars", FieldType::UInt32),
+        ("TbcExtra6", FieldType::UInt32),
+        ("TbcExtra7", FieldType::UInt32),
     ] {
         s.add_field(SchemaField::new(name, ty));
     }
     s
 }
 
-/// CharacterFacialHairStyles.dbc: 9 fields, no ID column.
+/// TBC 2.4.3 CharacterFacialHairStyles.dbc: 11 fields, no ID column.
 pub(crate) fn char_facial_hair_schema() -> Schema {
     let mut s = Schema::new("CharacterFacialHairStyles");
     for (name, ty) in [
@@ -293,6 +295,8 @@ pub(crate) fn char_facial_hair_schema() -> Schema {
         ("Geoset100", FieldType::UInt32),
         ("Geoset300", FieldType::UInt32),
         ("Geoset200", FieldType::UInt32),
+        ("TbcExtra9", FieldType::UInt32),
+        ("TbcExtra10", FieldType::UInt32),
     ] {
         s.add_field(SchemaField::new(name, ty));
     }

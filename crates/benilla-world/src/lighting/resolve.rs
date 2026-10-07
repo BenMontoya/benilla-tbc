@@ -81,8 +81,8 @@ impl WmoCrossfade {
     }
 }
 
-/// Loads `Light.dbc` into the [`LightSampler`] and seeds [`WowLighting`] with spawn-zone noon for
-/// frame 0; without client data it stays default.
+/// Loads `Light.dbc` into the [`LightSampler`] and seeds [`WowLighting`] with the current map's
+/// global noon atmosphere for frame 0; without client data it stays default.
 pub(super) fn setup_lighting(
     mut commands: Commands,
     world_assets: Option<ResMut<WorldAssets>>,
@@ -99,26 +99,18 @@ pub(super) fn setup_lighting(
             None
         }
     };
-    // Noon (half-minute 1440), clear and dry, on the area-light blend, not the single-sphere
-    // `pick_light` of `sample_noon`.
+    // Noon (half-minute 1440), clear and dry. Seed from the selected map's global row; the first
+    // Update resolves the actual camera position and blends in local area lights.
+    let map = crate::world_map::serverless_map_id();
     let atmo = catalog
         .as_ref()
-        .map(|c| {
-            c.sample_blended(
-                0,
-                [SPAWN_XY.0, SPAWN_XY.1, 83.5],
-                1440,
-                false,
-                benilla_formats::Submersion::Dry,
-                false,
-            )
-        })
+        .map(|c| c.sample_global(map, 1440, false))
         .unwrap_or(Atmosphere::DEFAULT);
     if let Some(cat) = catalog {
         commands.insert_resource(LightSampler(cat));
     }
     info!(
-        "Elwynn noon lighting from Light.dbc: sun diffuse {:?}, ambient {:?}",
+        "map {map} global noon lighting from Light.dbc: sun diffuse {:?}, ambient {:?}",
         atmo.sun_diffuse, atmo.ambient
     );
     let (fog_start, fog_end) = scene_fog(atmo.fog_end, atmo.fog_start_frac, view.farclip);

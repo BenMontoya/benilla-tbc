@@ -118,6 +118,8 @@ fn resolve_camera_skybox(
     viewer: Res<crate::view::Viewer>,
     current_map: Option<Res<crate::world_map::CurrentMap>>,
     cam: Query<&GlobalTransform, With<WorldCamera>>,
+    weather: Option<Res<crate::weather::WeatherState>>,
+    underwater: Res<crate::liquid::Underwater>,
     crossfade: Res<crate::lighting::WmoCrossfade>,
     mut want: ResMut<CameraSkybox>,
     mut weight: ResMut<SkyboxWeight>,
@@ -159,15 +161,36 @@ fn resolve_camera_skybox(
                 .then(|| sky.to_owned())
         })
         .min();
-    if want.0 != resolved {
-        want.0 = resolved;
+    if let Some(sky) = resolved {
+        if want.0.as_deref() != Some(sky.as_str()) {
+            want.0 = Some(sky);
+        }
+        weight.set_if_neq(SkyboxWeight(crossfade.t()));
+        return;
     }
-    // The WMO slot's weight is the interior crossfade `[0xce9bdc]`; a name seen through a doorway
-    // at weight 0 fills the slot, which `0x6d4afe` declines to draw.
-    weight.set_if_neq(SkyboxWeight(match want.0 {
-        Some(_) => crossfade.t(),
-        None => 0.0,
-    }));
+
+    // TBC outdoor and underwater sky models come from LightParams, with no extra render machinery
+    // beyond the existing single-model skybox lane.
+    let normal = sampler.as_ref().and_then(|sampler| {
+        let pos = bevy_to_wow(cam.single().ok()?.translation());
+        let map = current_map.as_ref().map_or(0, |m| m.0);
+        let storm = weather
+            .as_ref()
+            .map_or(0.0, |w| crate::weather::storm_blend(w.sky_density));
+        sampler.0.normal_skybox(map, pos, storm, underwater.0)
+    });
+    if let Some(sky) = normal {
+        if want.0.as_deref() != Some(sky.path) {
+            want.0 = Some(sky.path.to_owned());
+        }
+        weight.set_if_neq(SkyboxWeight(1.0));
+        return;
+    }
+
+    if want.0.is_some() {
+        want.0 = None;
+    }
+    weight.set_if_neq(SkyboxWeight(0.0));
 }
 
 /// Build the wanted skybox on first request; the models are small and few, so it stays built.

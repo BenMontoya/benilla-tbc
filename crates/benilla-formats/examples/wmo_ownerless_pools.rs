@@ -78,7 +78,7 @@ fn placed_roots(chain: &Chain) -> anyhow::Result<BTreeMap<String, BTreeSet<Strin
             continue;
         };
         let Ok(wdt) =
-            benilla_wdt::WdtReader::new(Cursor::new(&*bytes), benilla_wdt::WowVersion::Classic)
+            benilla_wdt::WdtReader::new(Cursor::new(&*bytes))
                 .read()
         else {
             continue;
@@ -94,7 +94,7 @@ fn placed_roots(chain: &Chain) -> anyhow::Result<BTreeMap<String, BTreeSet<Strin
 
 fn main() -> anyhow::Result<()> {
     let data = benilla_formats::wow_data()
-        .ok_or_else(|| anyhow::anyhow!("no 1.12.1 install found (set $WOW_DATA)"))?;
+        .ok_or_else(|| anyhow::anyhow!("no Burning Crusade 2.4.3 install found (set $WOW_DATA)"))?;
     let chain = Chain::open(&data)?;
     let placed = placed_roots(&chain)?;
     eprintln!("{} distinct WMO roots placed in the world", placed.len());
@@ -167,7 +167,7 @@ fn main() -> anyhow::Result<()> {
         cell[usize::from(r.has_instance())][usize::from(r.liquid_groups > 0)] += 1;
     }
     println!(
-        "WMO roots in the 1.12.1 chain: {} parsed of {} found\n",
+        "WMO roots in the 2.4.3 chain: {} parsed of {} found\n",
         census.len(),
         roots.len()
     );

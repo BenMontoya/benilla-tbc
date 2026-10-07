@@ -1,4 +1,5 @@
-//! `benilla-formats`: the schema layer over the 1.12.1 (build 5875) asset formats, the patch chain
+//! `benilla-formats`: the schema layer over the Burning Crusade 2.4.3 (build 8606) asset formats,
+//! the patch chain
 //! ([`Chain`]) and the `benilla-extract` CLI. Data stays in raw WoW coordinates; the Bevy transform
 //! lives in `benilla`.
 
@@ -136,7 +137,9 @@ pub use ground_effects::{
     GroundEffectCatalog, FRILL_DENSITY, FRILL_DENSITY_MAX,
 };
 mod light;
-pub use light::{Atmosphere, LightCatalog, Submersion, ZERO_KEY_COLOR, ZERO_KEY_SCALAR};
+pub use light::{
+    Atmosphere, LightCatalog, LightSkyboxRef, Submersion, ZERO_KEY_COLOR, ZERO_KEY_SCALAR,
+};
 mod loading_screen;
 pub use loading_screen::{load_loading_screens, LoadingScreenCatalog};
 mod liquid;
@@ -273,7 +276,7 @@ pub use terrain::{
 mod wdl;
 /// World (x, y) to ADT tile `(col, row)`; minimap `map<X>_<Y>.blp` names use the same order.
 pub use benilla_wdt::{
-    tile_to_world, world_to_chunk, world_to_tile, GlobalWmo, WdtFile, WdtReader, WowVersion,
+    tile_to_world, world_to_chunk, world_to_tile, GlobalWmo, WdtFile, WdtReader,
 };
 pub use wdl::{WdlFile, WdlTileMesh};
 
@@ -335,24 +338,7 @@ pub use taxi_nodes::{load_taxi_nodes, TaxiNode, TaxiNodes};
 mod taxi_path;
 pub use taxi_path::{load_taxi_paths, TaxiPath, TaxiPaths};
 
-/// The ten base archives, lowest priority first: the reference mounter's table (`0x82e12c`),
-/// priority 0x36 (`dbc.MPQ`) to 0x3f (`model.MPQ`), in [`Chain`]'s later-wins order. The patch
-/// archives and `speech2.MPQ` are found by [`Chain::open`]; `base.MPQ` is left out, as the
-/// reference closes it before mounting (`0x5aa2d0`).
-pub const VANILLA_BASE_ORDER: &[&str] = &[
-    "dbc.MPQ",
-    "speech.MPQ",
-    "fonts.MPQ",
-    "interface.MPQ",
-    "misc.MPQ",
-    "sound.MPQ",
-    "wmo.MPQ",
-    "terrain.MPQ",
-    "texture.MPQ",
-    "model.MPQ",
-];
-
-/// [`Chain::open`] on one `.MPQ` file or a vanilla `Data` directory.
+/// [`Chain::open`] on one `.MPQ` file or a Burning Crusade 2.4.3 `Data` directory.
 pub fn open_chain(path: &Path) -> Result<Chain> {
     Chain::open(path)
 }
@@ -586,8 +572,8 @@ pub fn blp_bytes_to_native_chain(bytes: &[u8]) -> Result<BlpMipChain> {
     })
 }
 
-/// Our schema for a known 1.12 DBC by base filename, as DBC files carry no column types. A
-/// localized string is 9 dwords: 8 locale offsets and a flags word.
+/// Our schema for a known 2.4.3 DBC by base filename, as DBC files carry no column types. TBC
+/// localized strings are 17 dwords: 16 locale offsets and a language-mask word.
 fn schema_for(dbc_name: &str) -> Option<Schema> {
     let base = dbc_name.rsplit(['/', '\\']).next().unwrap_or(dbc_name);
 
@@ -634,18 +620,18 @@ fn schema_for(dbc_name: &str) -> Option<Schema> {
     }
 
     if base.eq_ignore_ascii_case("TaxiNodes.dbc") {
-        // 16 fields, 64-byte records.
+        // 24 fields, 96-byte records in 2.4.3.
         let mut s = Schema::new("TaxiNodes");
         s.add_field(SchemaField::new("ID", FieldType::UInt32));
         s.add_field(SchemaField::new("MapID", FieldType::UInt32));
         s.add_field(SchemaField::new("X", FieldType::Float32));
         s.add_field(SchemaField::new("Y", FieldType::Float32));
         s.add_field(SchemaField::new("Z", FieldType::Float32));
-        s.add_field(SchemaField::new("Name", FieldType::String)); // enUS (locale 0)
+        s.add_field(SchemaField::new("Name", FieldType::String));
         s.add_field(SchemaField::new_array(
             "NameOtherLocales",
             FieldType::String,
-            7,
+            15,
         ));
         s.add_field(SchemaField::new("NameFlags", FieldType::UInt32));
         s.add_field(SchemaField::new("MountIdHorde", FieldType::UInt32));
@@ -655,42 +641,55 @@ fn schema_for(dbc_name: &str) -> Option<Schema> {
     }
 
     if base.eq_ignore_ascii_case("AreaTable.dbc") {
-        // 25 fields, 100-byte records, as `area_table.rs` and `area_sound.rs` load them.
+        // 35 fields, 140-byte records in 2.4.3.
         let mut s = Schema::new("AreaTable");
-        s.add_field(SchemaField::new("ID", FieldType::UInt32));
-        s.add_field(SchemaField::new("ContinentID", FieldType::UInt32));
-        s.add_field(SchemaField::new("ParentAreaID", FieldType::UInt32));
-        s.add_field(SchemaField::new("AreaBit", FieldType::UInt32));
-        s.add_field(SchemaField::new("Flags", FieldType::UInt32));
-        s.add_field(SchemaField::new("SoundProviderPref", FieldType::UInt32));
-        s.add_field(SchemaField::new(
+        for name in [
+            "ID",
+            "ContinentID",
+            "ParentAreaID",
+            "AreaBit",
+            "Flags",
+            "SoundProviderPref",
             "SoundProviderPrefUnderwater",
-            FieldType::UInt32,
-        ));
-        s.add_field(SchemaField::new("AmbienceID", FieldType::UInt32));
-        s.add_field(SchemaField::new("ZoneMusic", FieldType::UInt32));
-        s.add_field(SchemaField::new("IntroSound", FieldType::UInt32));
-        s.add_field(SchemaField::new("ExplorationLevel", FieldType::UInt32));
-        s.add_field(SchemaField::new("AreaName", FieldType::String)); // enUS (locale 0)
+            "AmbienceID",
+            "ZoneMusic",
+            "IntroSound",
+            "ExplorationLevel",
+        ] {
+            s.add_field(SchemaField::new(name, FieldType::UInt32));
+        }
+        s.add_field(SchemaField::new("AreaName", FieldType::String));
         s.add_field(SchemaField::new_array(
             "AreaNameOtherLocales",
             FieldType::String,
-            7,
+            15,
         ));
         s.add_field(SchemaField::new("AreaNameFlags", FieldType::UInt32));
         s.add_field(SchemaField::new("FactionGroupMask", FieldType::UInt32));
         s.add_field(SchemaField::new_array("LiquidTypeID", FieldType::UInt32, 4));
+        s.add_field(SchemaField::new("MinElevation", FieldType::Float32));
+        s.add_field(SchemaField::new("AmbientMultiplier", FieldType::Float32));
         s.set_key_field("ID");
         return Some(s);
     }
 
     if base.eq_ignore_ascii_case("GameObjectDisplayInfo.dbc") {
-        // 12 fields, as `gameobjects.rs` loads them.
+        // 18 fields, 72-byte records in 2.4.3.
         let mut s = Schema::new("GameObjectDisplayInfo");
         s.add_field(SchemaField::new("ID", FieldType::UInt32));
         s.add_field(SchemaField::new("ModelName", FieldType::String));
         for i in 0..10 {
             s.add_field(SchemaField::new(format!("Sound{i}"), FieldType::UInt32));
+        }
+        for name in [
+            "GeoBoxMinX",
+            "GeoBoxMinY",
+            "GeoBoxMinZ",
+            "GeoBoxMaxX",
+            "GeoBoxMaxY",
+            "GeoBoxMaxZ",
+        ] {
+            s.add_field(SchemaField::new(name, FieldType::Float32));
         }
         s.set_key_field("ID");
         return Some(s);
@@ -706,7 +705,7 @@ fn schema_for(dbc_name: &str) -> Option<Schema> {
     }
 
     if base.eq_ignore_ascii_case("TaxiPathNode.dbc") {
-        // 9 fields, as `taxi.rs` loads them.
+        // 11 fields, 44-byte records in 2.4.3.
         let mut s = Schema::new("TaxiPathNode");
         for name in ["ID", "PathID", "NodeIndex", "MapID"] {
             s.add_field(SchemaField::new(name, FieldType::UInt32));
@@ -714,7 +713,7 @@ fn schema_for(dbc_name: &str) -> Option<Schema> {
         for name in ["LocX", "LocY", "LocZ"] {
             s.add_field(SchemaField::new(name, FieldType::Float32));
         }
-        for name in ["Flags", "Delay"] {
+        for name in ["Flags", "Delay", "ArrivalEventID", "DepartureEventID"] {
             s.add_field(SchemaField::new(name, FieldType::UInt32));
         }
         s.set_key_field("ID");

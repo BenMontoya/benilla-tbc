@@ -106,7 +106,7 @@ impl Probe for Quest {
             sf.as_ref().is_some_and(|sf| {
                 (0..20).any(|i| {
                     sf.raw_fields().any(|(idx, val)| {
-                        idx == FIELD_PLAYER_QUEST_LOG_1_1 + 3 * i && val == QUEST_ID
+                        idx == FIELD_PLAYER_QUEST_LOG_1_1 + 4 * i && val == QUEST_ID
                     })
                 })
             })

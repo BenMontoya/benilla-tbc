@@ -113,11 +113,20 @@ impl AreaTableCatalog {
 
 fn schema() -> Schema {
     let mut s = Schema::new("AreaTable");
-    for i in 0..25 {
-        match i {
-            11 => s.add_field(SchemaField::new("AreaName", FieldType::String)),
-            _ => s.add_field(SchemaField::new(format!("c{i}"), FieldType::UInt32)),
-        }
+    for i in 0..35 {
+        let ty = if (11..=26).contains(&i) {
+            FieldType::String
+        } else if matches!(i, 33 | 34) {
+            FieldType::Float32
+        } else {
+            FieldType::UInt32
+        };
+        let name = if i == 11 {
+            "AreaName".to_string()
+        } else {
+            format!("c{i}")
+        };
+        s.add_field(SchemaField::new(name, ty));
     }
     s
 }
@@ -140,7 +149,7 @@ pub fn load_area_table_catalog(chain: &mut Chain) -> Result<AreaTableCatalog> {
         ) else {
             continue;
         };
-        let faction_group_mask = u32_at(r, 20).unwrap_or(0);
+        let faction_group_mask = u32_at(r, 28).unwrap_or(0);
         // Signed; an absent column reads as `-1`, no exploration gate.
         let exploration_level = u32_at(r, 10).map_or(-1, |v| v as i32);
         by_id.insert(
@@ -170,7 +179,7 @@ mod tests {
         let cat = load_area_table_catalog(&mut chain).expect("load AreaTable");
         assert!(
             cat.len() > 1000,
-            "5875 ships ~1800 areas, got {}",
+            "2.4.3 ships 1643 areas, got {}",
             cat.len()
         );
 
@@ -190,6 +199,19 @@ mod tests {
         assert_eq!(cat.get(12).expect("Elwynn").faction_group_mask, 2);
         assert_eq!(cat.get(14).expect("Durotar").faction_group_mask, 4);
         assert_eq!(cat.get(33).expect("Stranglethorn").faction_group_mask, 0);
+
+        // Expansion control: the Shattrath anchor tile authors these exact map-530 rows.
+        let shattrath = cat.get(3703).expect("Shattrath City");
+        assert_eq!(shattrath.map_id, 530);
+        assert_eq!(shattrath.zone_id, 0);
+        assert_eq!(shattrath.name, "Shattrath City");
+        for (id, name) in [(3896, "Aldor Rise"), (3898, "Scryer's Tier"), (3899, "Lower City")] {
+            let row = cat.get(id).expect(name);
+            assert_eq!(row.map_id, 530, "{name} is on Outland");
+            assert_eq!(row.zone_id, 3703, "{name} is a Shattrath sub-area");
+            assert_eq!(row.name, name);
+            assert_eq!(cat.top_zone(id), Some(3703));
+        }
         // The FFA-pit bit is on the pit row, not the enclosing arena row.
         assert_ne!(cat.get(2177).expect("Battle Ring").flags & 0x80, 0);
         assert_eq!(cat.get(1741).expect("Gurubashi Arena").flags & 0x80, 0);

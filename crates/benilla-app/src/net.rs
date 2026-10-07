@@ -214,6 +214,13 @@ pub(crate) fn current_speed(s: &MoveSpeeds, flags: u32) -> f32 {
     if flags & f::ANY_MOVE == 0 {
         return 0.0;
     }
+    if flags & (f::FLYING | f::FLYING2) != 0 {
+        return if flags & f::BACKWARD != 0 {
+            s.flight_back.min(s.flight)
+        } else {
+            s.flight
+        };
+    }
     if flags & f::SWIMMING != 0 {
         return if flags & f::BACKWARD != 0 {
             s.swim_back.min(s.swim)
@@ -2363,6 +2370,8 @@ mod tests {
             run_back: 4.5,
             swim: 4.722,
             swim_back: 2.5,
+            flight: 7.0,
+            flight_back: 4.5,
             turn_rate: std::f32::consts::PI,
         }
     }
@@ -2411,6 +2420,8 @@ mod tests {
             run_back: 9.0, // a run-back above run
             swim: 4.0,
             swim_back: 9.0, // a swim-back above swim
+            flight: 7.0,
+            flight_back: 4.5,
             turn_rate: std::f32::consts::PI,
         };
         assert_eq!(current_speed(&s, f::FORWARD | f::WALK_MODE), 7.0);

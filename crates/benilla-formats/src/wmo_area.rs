@@ -1,7 +1,7 @@
 //! `WMOAreaTable.dbc`, a WMO interior's audio identity per building and per group; the Northshire
 //! Abbey chant is its whole-WMO row's `ZoneIntroMusicTable` 221. Rows key on the root's
 //! `MOHD.wmoID`, the placement's `MODF.nameSet` and each group's `MOGP.uniqueID` (`+0x38`), with
-//! `WMOGroupID` `-1` for the whole-WMO row; the enUS `AreaName` is column 11 of 20.
+//! `WMOGroupID` `-1` for the whole-WMO row; the enUS `AreaName` is column 11 of 28.
 
 use std::collections::HashMap;
 
@@ -123,10 +123,17 @@ fn schema() -> Schema {
     ] {
         s.add_field(SchemaField::new(name, FieldType::UInt32));
     }
-    s.add_field(SchemaField::new("AreaName", FieldType::String));
-    for i in 12..20 {
-        s.add_field(SchemaField::new(format!("_pad{i}"), FieldType::UInt32));
+    for i in 11..27 {
+        s.add_field(SchemaField::new(
+            if i == 11 {
+                "AreaName".to_string()
+            } else {
+                format!("AreaName_{i}")
+            },
+            FieldType::String,
+        ));
     }
+    s.add_field(SchemaField::new("AreaNameMask", FieldType::UInt32));
     s
 }
 
@@ -169,8 +176,8 @@ mod tests {
         let data = crate::wow_data_or_skip!();
         let mut chain = crate::open_chain(&data).expect("open chain");
         let cat = load_wmo_area_catalog(&mut chain).expect("load WMOAreaTable");
-        // 21115 rows but 21105 distinct (wmo, nameset, group) keys: the shipped data repeats 10.
-        assert_eq!(cat.len(), 21105, "all distinct rows load");
+        // 16234 rows but 16221 distinct (wmo, nameset, group) keys: 2.4.3 repeats 13.
+        assert_eq!(cat.len(), 16221, "all distinct rows load");
 
         // NSabbey (59): an unknown group falls back to the whole-WMO row, the monk chant.
         let abbey = cat.resolve(59, 0, 9999).expect("abbey default row");
@@ -201,5 +208,12 @@ mod tests {
             .resolve(53, 2, 9999)
             .or_else(|| cat.resolve(53, 0, 9999));
         assert!(inn.is_some(), "the Goldshire inn WMO has rows");
+
+        // Expansion control: ShattrathCity.wmo has WMOID 4594. Its set-0 default names the city,
+        // while group 20912 is the authored Terrace of Light interior/exterior identity.
+        let shattrath = cat.resolve(4594, 0, 9999).expect("Shattrath default row");
+        assert_eq!(shattrath.name, "Shattrath City");
+        let terrace = cat.resolve(4594, 0, 20912).expect("Terrace of Light group row");
+        assert_eq!(terrace.name, "Terrace of Light");
     }
 }

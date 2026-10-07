@@ -86,15 +86,18 @@ fn normalize_weights(w: [u8; 4]) -> [f32; 4] {
     ]
 }
 
-/// Bone `bone_idx`'s scale track (`+0x44`) as a global-sequence [`BoneScaleAnim`], at the offsets
-/// `0x714260` reads; `None` for a sequence track or fewer than two keys.
+/// Bone `bone_idx`'s scale track as a global-sequence [`BoneScaleAnim`] using the TBC v260–v263
+/// bone layout. `None` for a sequence track or fewer than two keys.
 fn parse_bone_scale_anim(bytes: &[u8], bone_idx: usize) -> Option<BoneScaleAnim> {
     let bone_count = bytes.u32_at(0x34)? as usize;
     let bones_ofs = bytes.u32_at(0x38)? as usize;
+    let layout = super::BONE_LAYOUT;
     if bone_idx >= bone_count {
         return None;
     }
-    let track = bones_ofs.checked_add(bone_idx * 0x6c)?.checked_add(0x44)?;
+    let track = bones_ofs
+        .checked_add(bone_idx * layout.stride)?
+        .checked_add(layout.scale)?;
     let interp = bytes.u16_at(track)? != 0;
     let gseq = bytes.u16_at(track + 0x02)?;
     if gseq == 0xffff {
@@ -133,8 +136,8 @@ fn parse_bone_scale_anim(bytes: &[u8], bone_idx: usize) -> Option<BoneScaleAnim>
     })
 }
 
-/// Bone `bone_idx`'s translation track (`+0x0c`) cut to one sequence's `band` as a loop (the
-/// questgiver bob: anim 0 on load, 190 raised, `0x6076c0`); `None` under two keys in the band.
+/// Bone `bone_idx`'s translation track cut to one sequence's `band` as a loop (the questgiver
+/// bob: anim 0 on load, 190 raised, `0x6076c0`); `None` under two keys in the band.
 fn parse_bone_seq_translation(
     bytes: &[u8],
     bone_idx: usize,
@@ -144,10 +147,13 @@ fn parse_bone_seq_translation(
     let duration_ms = end.checked_sub(start).filter(|d| *d > 0)?;
     let bone_count = bytes.u32_at(0x34)? as usize;
     let bones_ofs = bytes.u32_at(0x38)? as usize;
+    let layout = super::BONE_LAYOUT;
     if bone_idx >= bone_count {
         return None;
     }
-    let track = bones_ofs.checked_add(bone_idx * 0x6c)?.checked_add(0x0c)?;
+    let track = bones_ofs
+        .checked_add(bone_idx * layout.stride)?
+        .checked_add(layout.translation)?;
     let interp = bytes.u16_at(track)? != 0;
     if bytes.u16_at(track + 0x02)? != 0xffff {
         return None; // a global-sequence loop

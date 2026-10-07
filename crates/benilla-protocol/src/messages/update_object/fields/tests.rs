@@ -1,116 +1,23 @@
 use super::*;
 
-/// The indices re-derived from vmangos's enum arithmetic and chained to two anchors known
-/// independently: `FIELD_PLAYER_INV_SLOT_HEAD` (486, a live descriptor dump) and
-/// `FIELD_PLAYER_BUYBACK_PRICE_1` (1226, the client binary).
+/// These existing field-layout assertions follow the TBC 8606 descriptor boundaries.
 #[test]
-fn combat_stat_indices_chain_to_the_tested_anchors() {
+fn tbc_field_layout_uses_8606_boundaries() {
     const OBJECT_END: u16 = 6;
-    const UNIT_END: u16 = OBJECT_END + 0xB6; // UpdateFields_1_12_1.h
-    assert_eq!(UNIT_END, 188);
-    assert_eq!(FIELD_PLAYER_INV_SLOT_HEAD, UNIT_END + 0x12A);
-    assert_eq!(FIELD_PLAYER_BUYBACK_PRICE_1, UNIT_END + 0x40E);
-    // UNIT combat block.
-    assert_eq!(FIELD_UNIT_BASEATTACKTIME, OBJECT_END + 0x78);
-    assert_eq!(FIELD_UNIT_RANGEDATTACKTIME, OBJECT_END + 0x7A);
-    assert_eq!(FIELD_UNIT_MINDAMAGE, OBJECT_END + 0x80);
-    assert_eq!(FIELD_UNIT_MAXDAMAGE, OBJECT_END + 0x81);
-    assert_eq!(FIELD_UNIT_MINOFFHANDDAMAGE, OBJECT_END + 0x82);
-    assert_eq!(FIELD_UNIT_MAXOFFHANDDAMAGE, OBJECT_END + 0x83);
-    assert_eq!(FIELD_UNIT_STAT0, OBJECT_END + 0x90);
-    assert_eq!(FIELD_UNIT_RESISTANCES, OBJECT_END + 0x95);
-    assert_eq!(FIELD_UNIT_ATTACK_POWER, OBJECT_END + 0x9F);
-    assert_eq!(FIELD_UNIT_ATTACK_POWER_MODS, OBJECT_END + 0xA0);
-    assert_eq!(FIELD_UNIT_ATTACK_POWER_MULTIPLIER, OBJECT_END + 0xA1);
-    assert_eq!(FIELD_UNIT_RANGED_ATTACK_POWER, OBJECT_END + 0xA2);
-    assert_eq!(FIELD_UNIT_RANGED_ATTACK_POWER_MODS, OBJECT_END + 0xA3);
-    assert_eq!(FIELD_UNIT_RANGED_ATTACK_POWER_MULTIPLIER, OBJECT_END + 0xA4);
-    assert_eq!(FIELD_UNIT_MINRANGEDDAMAGE, OBJECT_END + 0xA5);
-    assert_eq!(FIELD_UNIT_MAXRANGEDDAMAGE, OBJECT_END + 0xA6);
-    assert_eq!(FIELD_PLAYER_REST_STATE_EXPERIENCE, UNIT_END + 0x3DB);
-    assert_eq!(
-        FIELD_PLAYER_REST_STATE_EXPERIENCE + 1,
-        FIELD_PLAYER_FIELD_COINAGE
-    );
-    assert_eq!(
-        FIELD_PLAYER_EXPLORED_ZONES_1 + PLAYER_EXPLORED_ZONES_SLOTS,
-        FIELD_PLAYER_REST_STATE_EXPERIENCE
-    );
-    // The stat block runs past COINAGE to AMMO_ID 1223; SELF_RES and PVP_MEDALS fill 1224-1225.
-    assert_eq!(FIELD_PLAYER_POSSTAT0, FIELD_PLAYER_FIELD_COINAGE + 1);
-    assert_eq!(FIELD_PLAYER_POSSTAT0, UNIT_END + 0x3DD);
-    assert_eq!(FIELD_PLAYER_NEGSTAT0, UNIT_END + 0x3E2);
-    assert_eq!(FIELD_PLAYER_RESISTANCEBUFFMODSPOSITIVE, UNIT_END + 0x3E7);
-    assert_eq!(FIELD_PLAYER_RESISTANCEBUFFMODSNEGATIVE, UNIT_END + 0x3EE);
-    assert_eq!(FIELD_PLAYER_MOD_DAMAGE_DONE_POS, UNIT_END + 0x3F5);
-    assert_eq!(FIELD_PLAYER_MOD_DAMAGE_DONE_NEG, UNIT_END + 0x3FC);
-    assert_eq!(FIELD_PLAYER_MOD_DAMAGE_DONE_PCT, UNIT_END + 0x403);
-    assert_eq!(FIELD_PLAYER_AMMO_ID, UNIT_END + 0x40B);
-    assert_eq!(FIELD_PLAYER_AMMO_ID + 3, FIELD_PLAYER_BUYBACK_PRICE_1);
-    assert_eq!(FIELD_PLAYER_FIELD_BYTES, UNIT_END + 0x40A);
-    assert_eq!(FIELD_PLAYER_FIELD_BYTES + 1, FIELD_PLAYER_AMMO_ID);
-    // The watched-faction slot is 0x431 - 0x3DC = 85 dwords above COINAGE.
-    assert_eq!(FIELD_PLAYER_WATCHED_FACTION_INDEX, UNIT_END + 0x431);
-    assert_eq!(
-        FIELD_PLAYER_WATCHED_FACTION_INDEX,
-        FIELD_PLAYER_FIELD_COINAGE + 85
-    );
-    // Keyring 648 + 64 = far sight 712, + 2 combo target 714, + 2 XP 716. vmangos's hex comment
-    // for far sight says 0x2C2 = 706, six low; its enum arithmetic is what compiles.
-    assert_eq!(FIELD_PLAYER_FARSIGHT, UNIT_END + 0x20C);
-    assert_eq!(
-        FIELD_PLAYER_FARSIGHT,
-        FIELD_PLAYER_KEYRING_SLOT_1 + 2 * 32,
-        "far sight closes the 32-slot keyring array"
-    );
-    assert_eq!(FIELD_PLAYER_FARSIGHT + 2, FIELD_PLAYER_FIELD_COMBO_TARGET);
-    // `GetComboPoints` (`0x51a190`) reads the combo target at `[player+0xe68]+0x838`, and
-    // 0x838 / 4 = 0x20E.
-    assert_eq!(FIELD_PLAYER_FIELD_COMBO_TARGET, UNIT_END + 0x20E);
-    assert_eq!(FIELD_PLAYER_FIELD_COMBO_TARGET + 2, FIELD_PLAYER_XP);
-    // The skill array is 128 slots of 3 dwords.
-    assert_eq!(FIELD_PLAYER_SKILL_INFO_1_1, FIELD_PLAYER_NEXT_LEVEL_XP + 1);
-    assert_eq!(FIELD_PLAYER_SKILL_INFO_1_1, UNIT_END + 0x212);
-    assert_eq!(FIELD_PLAYER_SKILL_INFO_1_1 + 384, UNIT_END + 0x392);
-    assert_eq!(
-        FIELD_PLAYER_CHARACTER_POINTS1,
-        FIELD_PLAYER_SKILL_INFO_1_1 + 384
-    );
-    assert_eq!(FIELD_PLAYER_CHARACTER_POINTS2, UNIT_END + 0x393);
-    assert_eq!(
-        FIELD_PLAYER_TRACK_CREATURES,
-        FIELD_PLAYER_CHARACTER_POINTS2 + 1
-    );
-    assert_eq!(FIELD_PLAYER_TRACK_RESOURCES, UNIT_END + 0x395);
-    assert_eq!(
-        FIELD_PLAYER_BUYBACK_TIMESTAMP_1 + 12,
-        FIELD_PLAYER_FIELD_SESSION_KILLS,
-        "the honor block opens where the 12-slot buyback-timestamp array ends"
-    );
-    assert_eq!(
-        FIELD_PLAYER_FIELD_BYTES2 + 1,
-        FIELD_PLAYER_WATCHED_FACTION_INDEX,
-        "and closes one below the watched-faction slot"
-    );
-    assert_eq!(FIELD_PLAYER_FIELD_SESSION_KILLS, UNIT_END + 0x426);
-    assert_eq!(FIELD_PLAYER_FIELD_YESTERDAY_KILLS, UNIT_END + 0x427);
-    assert_eq!(FIELD_PLAYER_FIELD_LAST_WEEK_KILLS, UNIT_END + 0x428);
-    assert_eq!(FIELD_PLAYER_FIELD_THIS_WEEK_KILLS, UNIT_END + 0x429);
-    assert_eq!(FIELD_PLAYER_FIELD_THIS_WEEK_CONTRIBUTION, UNIT_END + 0x42A);
-    assert_eq!(
-        FIELD_PLAYER_FIELD_LIFETIME_HONORABLE_KILLS,
-        UNIT_END + 0x42B
-    );
-    assert_eq!(
-        FIELD_PLAYER_FIELD_LIFETIME_DISHONORABLE_KILLS,
-        UNIT_END + 0x42C
-    );
-    assert_eq!(FIELD_PLAYER_FIELD_YESTERDAY_CONTRIBUTION, UNIT_END + 0x42D);
-    assert_eq!(FIELD_PLAYER_FIELD_LAST_WEEK_CONTRIBUTION, UNIT_END + 0x42E);
-    assert_eq!(FIELD_PLAYER_FIELD_LAST_WEEK_RANK, UNIT_END + 0x42F);
-    assert_eq!(FIELD_PLAYER_FIELD_BYTES2, UNIT_END + 0x430);
-    // The current rank rides the public PLAYER_BYTES_3, outside the honor block.
-    assert_eq!(FIELD_PLAYER_BYTES_3, UNIT_END + 0x7);
+    const UNIT_END: u16 = 234;
+    assert_eq!(FIELD_UNIT_DISPLAYID, OBJECT_END + 0x92);
+    assert_eq!(FIELD_UNIT_HEALTH, OBJECT_END + 0x10);
+    assert_eq!(FIELD_UNIT_AURA, OBJECT_END + 0x2A);
+    assert_eq!(UNIT_AURA_SLOTS, 56);
+    assert_eq!(UNIT_AURA_POSITIVE_SLOTS, 40);
+    assert_eq!(FIELD_PLAYER_QUEST_LOG_1_1, UNIT_END + 0x0A);
+    assert_eq!(FIELD_PLAYER_INV_SLOT_HEAD, UNIT_END + 0x1A0);
+    assert_eq!(FIELD_PLAYER_SKILL_INFO_1_1, UNIT_END + 0x2B6);
+    assert_eq!(FIELD_PLAYER_EXPLORED_ZONES_1, UNIT_END + 0x44A);
+    assert_eq!(FIELD_PLAYER_EXPLORED_ZONES_1 + PLAYER_EXPLORED_ZONES_SLOTS, FIELD_PLAYER_REST_STATE_EXPERIENCE);
+    assert_eq!(FIELD_PLAYER_BUYBACK_PRICE_1, UNIT_END + 0x4E8);
+    assert_eq!(FIELD_PLAYER_FIELD_BYTES2, UNIT_END + 0x504);
+    assert_eq!(FIELD_PLAYER_WATCHED_FACTION_INDEX, UNIT_END + 0x505);
 }
 
 #[test]

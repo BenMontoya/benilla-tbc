@@ -3,8 +3,9 @@
 //! streamed tiles out to `horizonfarclip`, unlit, untextured, vertex-white and fogged.
 //!
 //! Layout: `MVER` (version 18), `MAOF` (4096 `u32` tile offsets, `[tile_y][tile_x]`), then per
-//! present tile a `MARE` of 17×17 outer and 16×16 inner `int16` heights; vanilla Azeroth has no
-//! `MWMO`/`MWID`/`MODF` or `MAHO`. The mesh is raw WoW world coordinates (X north, Y west, Z up).
+//! present tile a `MARE` of 17×17 outer and 16×16 inner `int16` heights. TBC can follow a MARE
+//! with a 32-byte `MAHO` bitmask, one bit per 16×16 coarse cell, for MCNKs that are completely
+//! holed out. The mesh is raw WoW world coordinates (X north, Y west, Z up).
 
 use std::io::{Cursor, Read, Seek, SeekFrom};
 
@@ -34,6 +35,15 @@ pub struct WdlFile {
 struct MareTile {
     outer: [i16; OUTER_N],
     inner: [i16; INNER_N],
+    /// One bit per coarse 16×16 cell: row-major `index_y * 16 + index_x`.
+    holes: [u8; 32],
+}
+
+impl MareTile {
+    fn is_hole(&self, row: usize, col: usize) -> bool {
+        let bit = row * INNER_EDGE + col;
+        self.holes[bit / 8] & (1 << (bit % 8)) != 0
+    }
 }
 
 /// A coarse WDL tile mesh in raw WoW world coordinates, with no normals or UVs: the reference
@@ -41,7 +51,7 @@ struct MareTile {
 pub struct WdlTileMesh {
     /// 545 verts: 289 outer (`[r*17+c]`) then 256 inner (`[289 + r*16+c]`).
     pub positions: Vec<[f32; 3]>,
-    /// 3072 indices = 16×16 cells × 4 triangles.
+    /// Up to 3072 indices = 16×16 cells × 4 triangles, less where MAHO masks whole cells.
     pub indices: Vec<u32>,
 }
 
@@ -76,9 +86,9 @@ impl WdlFile {
     }
 
     /// Present tiles within a Chebyshev `radius` of world `(x, y)`, the centre tile included, as
-    /// the reference's far walk (`0x683040`) visits a ±3-tile window. Below a tile of view distance
-    /// (vanilla goes down to 177) the camera's own tile draws the near horizon, and without it sky
-    /// shows through; the far band's near plane in `wdl.wgsl` alone bounds that side.
+    /// the reference's far walk (`0x683040`) visits a ±3-tile window. At short view distances the
+    /// camera's own tile still draws the near horizon; the far band's near plane in `wdl.wgsl`
+    /// alone bounds that side.
     pub fn tiles_in_ring(&self, world_x: f32, world_y: f32, radius: u32) -> Vec<(u32, u32)> {
         let (cx, cy) = benilla_wdt::world_to_tile(world_x, world_y);
         let r = radius as i32;
@@ -134,6 +144,9 @@ impl WdlFile {
         let mut indices = Vec::with_capacity(INNER_EDGE * INNER_EDGE * 12);
         for r in 0..INNER_EDGE as u32 {
             for c in 0..INNER_EDGE as u32 {
+                if tile.is_hole(r as usize, c as usize) {
+                    continue;
+                }
                 let tl = r * OUTER_EDGE as u32 + c;
                 let tr = tl + 1;
                 let bl = tl + OUTER_EDGE as u32;
@@ -163,6 +176,9 @@ impl WdlFile {
         let (cell_r, cell_c) = (gr as usize, gc as usize);
         let tile = self.tiles[tile_index((cell_c / 16) as u32, (cell_r / 16) as u32)].as_ref()?;
         let (r, c) = (cell_r % 16, cell_c % 16);
+        if tile.is_hole(r, c) {
+            return None;
+        }
         let h = |rr: usize, cc: usize| f64::from(tile.outer[rr * OUTER_EDGE + cc]);
         let (tl, tr) = (h(r, c), h(r, c + 1));
         let (bl, br) = (h(r + 1, c), h(r + 1, c + 1));
@@ -206,13 +222,16 @@ fn parse_wdl(bytes: &[u8]) -> Result<WdlFile> {
     if &magic != b"MVER" {
         bail!("expected MVER first, got {:?}", magic);
     }
+    if size < 4 {
+        bail!("MVER is {size} B, expected at least 4");
+    }
     let mut ver = [0u8; 4];
     cur.read_exact(&mut ver)?;
     let version = u32::from_le_bytes(ver);
     if version != 18 {
         bail!("unexpected WDL version {version} (expected 18)");
     }
-    cur.seek(SeekFrom::Current(size as i64 - 4))?; // skip any MVER tail (none in vanilla)
+    cur.seek(SeekFrom::Current(size as i64 - 4))?; // skip any MVER tail (none in stock 2.4.3)
 
     // Skip to MAOF past any low-detail WMO chunks.
     let offsets = loop {
@@ -257,7 +276,22 @@ fn parse_wdl(bytes: &[u8]) -> Result<WdlFile> {
         for (j, h) in inner.iter_mut().enumerate() {
             *h = i16::from_le_bytes([body[base + j * 2], body[base + j * 2 + 1]]);
         }
-        tiles[i] = Some(MareTile { outer, inner });
+        // TBC's optional MAHO immediately follows this MARE. Its 256 bits match the ADT's 256
+        // MCNK records whose low-resolution hole mask is exactly 0xFFFF.
+        let mut holes = [0u8; 32];
+        let after_mare = off as usize + 8 + size as usize;
+        if bytes.get(after_mare..after_mare + 4) == Some(b"OHAM".as_slice())
+            && bytes
+                .get(after_mare + 4..after_mare + 8)
+                .and_then(|raw| <[u8; 4]>::try_from(raw).ok())
+                .map(u32::from_le_bytes)
+                .is_some_and(|n| n >= holes.len() as u32)
+        {
+            if let Some(mask) = bytes.get(after_mare + 8..after_mare + 8 + holes.len()) {
+                holes.copy_from_slice(mask);
+            }
+        }
+        tiles[i] = Some(MareTile { outer, inner, holes });
     }
 
     Ok(WdlFile { tiles })
@@ -300,7 +334,11 @@ mod tests {
             *o = ((i * 53) % 211) as i16 - 60;
         }
         let (tx, ty) = (30u32, 41u32);
-        tiles[tile_index(tx, ty)] = Some(MareTile { outer, inner });
+        tiles[tile_index(tx, ty)] = Some(MareTile {
+            outer,
+            inner,
+            holes: [0; 32],
+        });
         let wdl = WdlFile { tiles };
         let mesh = wdl.tile_mesh(tx, ty).unwrap();
         for (i, p) in mesh.positions.iter().enumerate() {

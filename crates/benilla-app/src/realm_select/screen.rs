@@ -836,9 +836,11 @@ mod tests {
             population: 1.0,
             characters: 0,
             realm_type: 0,
+            locked: false,
             flags: 0,
             category,
             id: 0,
+            build: None,
         }
     }
 

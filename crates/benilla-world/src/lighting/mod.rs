@@ -3,7 +3,6 @@
 
 use bevy::prelude::*;
 
-use benilla_assets::AssetSet;
 use benilla_formats::{LightCatalog, LiquidKind};
 
 mod blob; // off-world light blobs (portrait booths, body panes, glue scene)
@@ -215,7 +214,10 @@ impl Plugin for LightingPlugin {
             .init_resource::<WorldTime>()
             .init_resource::<WmoCrossfade>()
             .insert_resource(ClearColor(Color::BLACK))
-            .add_systems(Startup, setup_lighting.after(AssetSet::Open))
+            .add_systems(
+                Startup,
+                setup_lighting.after(benilla_assets::AssetSet::Open),
+            )
             .add_systems(
                 Update,
                 (update_time_lighting, apply_sky_backdrop)

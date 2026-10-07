@@ -8,7 +8,7 @@ use std::thread;
 
 use benilla_protocol::messages::opcode;
 use benilla_protocol::{messages, WardenRequired, WorldSession};
-use benilla_srp::vanilla_header::HeaderCrypto;
+use benilla_srp::header::HeaderCrypto;
 use benilla_srp::SESSION_KEY_LENGTH;
 
 const SESSION_KEY: [u8; SESSION_KEY_LENGTH] = [7u8; SESSION_KEY_LENGTH];

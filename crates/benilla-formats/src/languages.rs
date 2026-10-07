@@ -18,8 +18,8 @@ const LANGUAGES: &str = "DBFilesClient\\Languages.dbc";
 const CHR_RACES: &str = "DBFilesClient\\ChrRaces.dbc";
 const LANGUAGE_WORDS: &str = "DBFilesClient\\LanguageWords.dbc";
 
-/// Locale columns in a 5875 `Name_lang` block.
-const LOCALES: usize = 8;
+/// The 16 locale name slots in build 8606 (followed by one flags dword).
+const LOCALES: usize = 16;
 
 /// Race id to its base language's name, per locale column.
 #[derive(Debug, Default, Clone)]
@@ -50,11 +50,10 @@ fn languages_schema() -> Schema {
     s
 }
 
-/// `ChrRaces.dbc`, 29 fields in 5875, all read as dwords: only the count must match the header,
-/// and only field 8 is used.
+/// TBC 8606 ChrRaces uses 69 fields. BaseLanguage remains field 8.
 fn chr_races_schema() -> Schema {
     let mut s = Schema::new("ChrRaces");
-    for i in 0..29 {
+    for i in 0..69 {
         s.add_field(SchemaField::new(format!("f{i}"), FieldType::UInt32));
     }
     s

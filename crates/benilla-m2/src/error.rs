@@ -12,7 +12,7 @@ impl std::fmt::Display for Error {
         match self {
             Error::NotMd20 => write!(f, "not an MD20 model"),
             Error::UnsupportedVersion(v) => {
-                write!(f, "unsupported M2 version {v} (expected 256..=263)")
+                write!(f, "unsupported M2 version {v} (expected 260..=263)")
             }
             Error::Truncated => write!(f, "truncated M2"),
         }

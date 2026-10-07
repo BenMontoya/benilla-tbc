@@ -170,6 +170,8 @@ fn client_bodies_golden() {
     );
     let mi = MovementInfo {
         flags: 0x1,
+
+        flags2: 0,
         timestamp: 0x0102_0304,
         position: Vector3d {
             x: -8949.95,
@@ -181,6 +183,9 @@ fn client_bodies_golden() {
         pitch: 0.0,
         fall_time: 0,
         jump: None,
+
+        spline_elevation: 0.0,
+
     };
     assert_eq!(
         messages::movement(&mi),

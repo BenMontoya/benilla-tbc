@@ -535,7 +535,7 @@ pub(crate) fn class_names(class: u8) -> Option<(&'static str, &'static str)> {
 /// where addons concatenate `UnitFactionGroup("player")` at file scope; [`faction_group`] reads
 /// the live template.
 pub(crate) fn race_faction_group(race: u8) -> Option<&'static str> {
-    if !(1..=8).contains(&race) {
+    if !(1..=8).contains(&race) && race != 10 && race != 11 {
         return None;
     }
     Some(if crate::char_create::ALLIANCE.contains(&race) {

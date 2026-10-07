@@ -157,6 +157,21 @@ fn dbc_to_world(x: f32, y: f32, z: f32) -> [f32; 3] {
     ]
 }
 
+/// One authored `LightSkybox.dbc` model selected by a `LightParams` row. The 2.4.3 table adds
+/// `flags`; only Nagrand sets bit 0 in the stock data, and its client-side meaning is not yet
+/// proven, so callers receive it as metadata rather than guessing behavior.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LightSkyboxRef<'a> {
+    pub path: &'a str,
+    pub flags: u32,
+}
+
+#[derive(Clone, Debug)]
+struct LightSkybox {
+    path: String,
+    flags: u32,
+}
+
 /// Parsed lighting tables; query with [`LightCatalog::sample`].
 pub struct LightCatalog {
     lights: Vec<Light>,
@@ -171,9 +186,9 @@ pub struct LightCatalog {
     /// `LightParams` id → `lightSkyboxID` ([`LP_SKYBOX`]), for its non-zero rows only.
     light_params_skybox: HashMap<u32, u32>,
     /// `LightSkybox.dbc` id → model chain path, spelled as a WMO MOSB skybox is so one model never
-    /// builds twice. Only id 3 (`DeathClouds.mdx`) is reachable from `LightParams`; the other five
-    /// rows are MOSB skyboxes.
-    skyboxes: HashMap<u32, String>,
+    /// builds twice. In 2.4.3, normal Outland LightParams use several authored skybox ids in
+    /// addition to the death-slot `DeathClouds.mdx` id.
+    skyboxes: HashMap<u32, LightSkybox>,
 }
 
 fn light_schema() -> Schema {
@@ -195,8 +210,8 @@ fn light_schema() -> Schema {
     s
 }
 
-/// `LightParams.dbc`: 9 fields, 36-byte records, types per the client's reader `0x589030`.
-/// `cloudTypeID` (+0x0C) is 0 in every 5875 record; the glow is +0x10.
+/// `LightParams.dbc`: 9 fields, 36-byte records. `cloudTypeID` (+0x0C) remains zero in every
+/// stock 2.4.3 row; the glow is +0x10.
 fn light_params_schema() -> Schema {
     let mut s = Schema::new("LightParams");
     for (n, t) in [
@@ -215,8 +230,8 @@ fn light_params_schema() -> Schema {
     s
 }
 
-/// An area light's strength: 1 within `start`, linear to 0 at `end` (`0x6d2d00`, which admits a
-/// sphere only at `dist ≤ end`), so a sphere enters at 0 and the blend stays continuous.
+/// An area light's strength: 1 within `start`, linear to 0 at `end`. The 2.4.3 compositor
+/// admits a local Light only while the eye is within its outer radius, so it enters continuously.
 fn blend_alpha(dist: f32, start: f32, end: f32) -> f32 {
     if dist >= end {
         0.0
@@ -326,11 +341,18 @@ impl LightCatalog {
             let mut schema = Schema::new("LightSkybox");
             schema.add_field(SchemaField::new("ID", FieldType::UInt32));
             schema.add_field(SchemaField::new("Name", FieldType::String));
+            schema.add_field(SchemaField::new("Flags", FieldType::UInt32));
             let rs = parse(&bytes, schema, "LightSkybox")?;
             let mut m = HashMap::with_capacity(rs.records().len());
             for r in rs.records() {
                 if let (Some(id), Some(path)) = (u32_at(r, 0), str_at(&rs, r, 1)) {
-                    m.insert(id, crate::models::model_path(&path));
+                    m.insert(
+                        id,
+                        LightSkybox {
+                            path: crate::models::model_path(&path),
+                            flags: u32_at(r, 2).unwrap_or(0),
+                        },
+                    );
                 }
             }
             m
@@ -369,6 +391,23 @@ impl LightCatalog {
     /// [`LightCatalog::sample`] at noon, clear weather.
     pub fn sample_noon(&self, map: u32, pos: [f32; 3]) -> Atmosphere {
         self.sample(map, pos, DAY / 2, false)
+    }
+
+    /// The map's authored global atmosphere only, with no local-sphere blend. A map with no Light
+    /// rows uses the same fallback row as [`Self::sample`] / [`Self::sample_blended`]; a map that
+    /// has rows but no global remains [`Atmosphere::DEFAULT`], matching the blend base.
+    pub fn sample_global(&self, map: u32, time: u32, stormy: bool) -> Atmosphere {
+        let Some(light) = self.base_light(map) else {
+            return Atmosphere::DEFAULT;
+        };
+        let slot = if stormy { SLOT_STORM } else { SLOT_CLEAR };
+        let param = match light.params[slot] {
+            0 => light.params[SLOT_CLEAR],
+            p => p,
+        };
+        (param >= 1)
+            .then(|| self.sample_param(param, time))
+            .unwrap_or(Atmosphere::DEFAULT)
     }
 
     /// Debug: print the band rows of the clear `LightParams` covering `pos`, at `time`.
@@ -434,11 +473,60 @@ impl LightCatalog {
     /// `[row+0x2c]`. The ghost bit is the whole condition: the colour-table build `0x6d2260` fills
     /// `[0xce9bb4]` at `0x6d26cb` only while `[0xce9bb0] != -1`, which only `0x6d4620` writes, for
     /// the ghost selector `0x5de9c0` (`mov ecx,4`). The row is [`pick_light`](Self::pick_light)'s;
-    /// every shipped row's slot 4 names the same sky, `DeathClouds.mdx`.
+    /// all 580 stock 2.4.3 Light rows' slot 4 parameters name the same sky, `DeathClouds.mdx`.
     pub fn ghost_skybox(&self, map: u32, pos: [f32; 3]) -> Option<&str> {
         let light = self.pick_light(map, pos)?;
-        let id = self.light_params_skybox.get(&light.params[SLOT_DEATH])?;
-        self.skyboxes.get(id).map(String::as_str)
+        self.skybox_for_param(light.params[SLOT_DEATH])
+            .map(|sky| sky.path)
+    }
+
+    /// The normal authored sky model for the winning spatial Light row. Numeric atmosphere still
+    /// blends all containing Light spheres separately; the sky M2 is a discrete authored model.
+    ///
+    /// Weather usually does not complicate that choice: 571/580 stock 2.4.3 Light rows resolve
+    /// the same sky (or none) from clear and storm params. Nine rows differ. At the exact weather
+    /// endpoints we return the authored endpoint sky; during those nine mixed transitions we
+    /// return `None` rather than invent an unverified multi-model crossfade.
+    pub fn normal_skybox(
+        &self,
+        map: u32,
+        pos: [f32; 3],
+        storm_blend: f32,
+        submersion: Submersion,
+    ) -> Option<LightSkyboxRef<'_>> {
+        if let Some(param) = submersion.fixed_param() {
+            return self.skybox_for_param(param);
+        }
+        let light = self.pick_light(map, pos)?;
+        let underwater = submersion.is_water();
+        let param_for = |stormy: bool| {
+            let slot = weather_slot(false, stormy, underwater);
+            match light.params[slot] {
+                0 => light.params[SLOT_CLEAR],
+                p => p,
+            }
+        };
+        let clear = self.skybox_for_param(param_for(false));
+        let storm = self.skybox_for_param(param_for(true));
+        if clear == storm {
+            return clear;
+        }
+        if storm_blend <= 0.0 {
+            clear
+        } else if storm_blend >= 1.0 {
+            storm
+        } else {
+            None
+        }
+    }
+
+    fn skybox_for_param(&self, param: u32) -> Option<LightSkyboxRef<'_>> {
+        let id = self.light_params_skybox.get(&param)?;
+        let sky = self.skyboxes.get(id)?;
+        Some(LightSkyboxRef {
+            path: sky.path.as_str(),
+            flags: sky.flags,
+        })
     }
 
     /// The reference's area-light blend: from the map's global light, lerp toward each local
@@ -469,24 +557,13 @@ impl LightCatalog {
             (param >= 1).then(|| self.sample_param(param, time))
         };
 
-        // The base: the map's global, else the zero-match record for a rowless map (`0x6d62b2`).
-        // The seven maps with rows but no global (33/37/129/169/209/489/531) start from `DEFAULT`:
-        // the reference leaves slot 0 unwritten there, and what it blends against is untraced.
-        let map_has_no_light = !self.lights.iter().any(|l| l.map == map);
+        // The base: the map's global, else the zero-match record for a rowless map.
         let mut acc = self
-            .lights
-            .iter()
-            .find(|l| l.map == map && l.global)
-            .or_else(|| {
-                map_has_no_light
-                    .then(|| self.lights.iter().find(|l| l.id == FALLBACK_LIGHT_ID))
-                    .flatten()
-            })
+            .base_light(map)
             .and_then(atmo_of)
             .unwrap_or(Atmosphere::DEFAULT);
 
-        // Farthest first, so the nearest lands last: `0x6d2d00` drains a max-heap keyed on
-        // distance, not weight, calling `0x6d30e0(dst, row, w)` for every entry, a lone one too.
+        // Farthest first, so the nearest volume contributes to the atmosphere last.
         let mut locals: Vec<(f32, &Light)> = self
             .lights
             .iter()
@@ -500,7 +577,6 @@ impl LightCatalog {
             })
             .collect();
         locals.sort_by(|a, b| b.0.total_cmp(&a.0));
-
         for (dist, l) in locals {
             if let Some(atmo) = atmo_of(l) {
                 acc = acc.lerp(&atmo, blend_alpha(dist, l.falloff_start, l.falloff_end));
@@ -665,12 +741,29 @@ impl LightCatalog {
         }
     }
 
+    /// The area-blend base row: this map's global Light, or the reference fallback only when the
+    /// map has no Light rows at all. Maps with rows but no global intentionally return `None`.
+    fn base_light(&self, map: u32) -> Option<&Light> {
+        let mut any = false;
+        let mut global = None;
+        for light in self.lights.iter().filter(|l| l.map == map) {
+            any = true;
+            if light.global {
+                global = Some(light);
+                break;
+            }
+        }
+        global.or_else(|| {
+            (!any)
+                .then(|| self.lights.iter().find(|l| l.id == FALLBACK_LIGHT_ID))
+                .flatten()
+        })
+    }
+
     fn pick_light(&self, map: u32, pos: [f32; 3]) -> Option<&Light> {
         let mut local: Option<&Light> = None;
         let mut global: Option<&Light> = None;
-        let mut any = false;
         for l in self.lights.iter().filter(|l| l.map == map) {
-            any = true;
             if l.global {
                 global = Some(l);
                 continue;
@@ -682,13 +775,8 @@ impl LightCatalog {
                 local = Some(l);
             }
         }
-        // The same zero-match tail as `sample_blended` ([`FALLBACK_LIGHT_ID`]), so a map with no
-        // rows resolves the same record on both paths.
-        local.or(global).or_else(|| {
-            (!any)
-                .then(|| self.lights.iter().find(|l| l.id == FALLBACK_LIGHT_ID))
-                .flatten()
-        })
+        // The same zero-match tail as `sample_blended`: only a rowless map uses the fallback.
+        local.or(global).or_else(|| self.base_light(map))
     }
 
     /// Whether `LightParams` `p` has band rows in this chain, the client's `maxId` guard on the

@@ -312,6 +312,8 @@ mod tests {
     fn move_spline_done_body_golden() {
         let info = MovementInfo {
             flags: 0, // no SWIMMING / JUMPING ⇒ no conditional MovementInfo tails
+
+            flags2: 0,
             timestamp: 0x1122_3344,
             position: Vector3d {
                 x: 1.0,
@@ -323,11 +325,15 @@ mod tests {
             pitch: 0.0,
             fall_time: 0x5566_7788,
             jump: None,
+
+            spline_elevation: 0.0,
+
         };
         let body = move_spline_done(&info, 0xAABB_CCDD);
         #[rustfmt::skip]
         let want: &[u8] = &[
             0x00, 0x00, 0x00, 0x00, // flags
+            0x00,                   // TBC flags2
             0x44, 0x33, 0x22, 0x11, // timestamp
             0x00, 0x00, 0x80, 0x3F, // pos.x = 1.0
             0x00, 0x00, 0x00, 0x40, // pos.y = 2.0

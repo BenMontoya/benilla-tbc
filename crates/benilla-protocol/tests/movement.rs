@@ -64,6 +64,8 @@ fn jump_relay_round_trips_the_ballistic_tail() {
     // sinAngle, xyspeed, cos before sin (vmangos `MovementInfo::Read`).
     let mi = MovementInfo {
         flags: 0x2000 | 0x1,
+
+        flags2: 0,
         timestamp: 0x0102_0304,
         position: Vector3d {
             x: 1.0,
@@ -80,6 +82,9 @@ fn jump_relay_round_trips_the_ballistic_tail() {
             sin_angle: 0.75,
             xy_speed: 7.0,
         }),
+
+        spline_elevation: 0.0,
+
     };
     let mut body = hx("01aa"); // [packed guid 0xAA][MovementInfo], the relay shape.
     body.extend_from_slice(&messages::movement(&mi));
@@ -141,6 +146,7 @@ fn movement_relay_surfaces_transport_pose_and_keeps_the_rest_aligned() {
             z: 3.0,
         },
         orientation: 0.5,
+        time: 0,
     };
 
     match messages::parse_server(messages::opcode::MSG_MOVE_HEARTBEAT, &body).unwrap() {
@@ -266,6 +272,8 @@ fn force_speed_change_parses_and_ack_body_golden() {
 
     let info = MovementInfo {
         flags: 0,
+
+        flags2: 0,
         timestamp: 12345,
         position: Vector3d {
             x: 1.0,
@@ -277,6 +285,9 @@ fn force_speed_change_parses_and_ack_body_golden() {
         pitch: 0.0,
         fall_time: 42,
         jump: None,
+
+        spline_elevation: 0.0,
+
     };
     assert_eq!(
         messages::force_speed_ack(8, 7, &info, 14.0),
@@ -328,6 +339,8 @@ fn knock_back_parses_and_ack_body_golden() {
     // MOVEFLAG_JUMPING (0x2000), without which no jump tail is written for the server to match.
     let info = MovementInfo {
         flags: 0x2000,
+
+        flags2: 0,
         timestamp: 12345,
         position: Vector3d {
             x: 1.0,
@@ -339,6 +352,9 @@ fn knock_back_parses_and_ack_body_golden() {
         pitch: 0.0,
         fall_time: 0,
         jump: Some(launch),
+
+        spline_elevation: 0.0,
+
     };
     assert_eq!(
         messages::knock_back_ack(8, 7, &info),

@@ -1,4 +1,4 @@
-//! `benilla-extract`: a CLI over the 1.12.1 (build 5875) MPQ patch chain, where later archives
+//! `benilla-extract`: a CLI over the Burning Crusade 2.4.3 (build 8606) MPQ patch chain, where later archives
 //! override earlier ones and names come from `patch.MPQ`'s `(listfile)`. This file holds the clap
 //! commands, their dispatch and the shared helpers; the subcommands live in modules by concern.
 
@@ -19,7 +19,7 @@ mod shakecensus;
 mod spellvis;
 mod thudcensus;
 
-/// Read WoW 1.12.1 asset archives (MPQ).
+/// Read WoW: The Burning Crusade 2.4.3 asset archives (MPQ).
 #[derive(Parser)]
 #[command(
     name = "benilla-extract",
@@ -28,7 +28,7 @@ mod thudcensus;
     allow_negative_numbers = true
 )]
 struct Cli {
-    /// A single `.MPQ` file, or a vanilla `Data` directory (opens the full patch chain).
+    /// A single `.MPQ` file, or a 2.4.3 `Data` directory (opens the full patch chain).
     path: PathBuf,
     #[command(subcommand)]
     command: Command,
@@ -396,7 +396,7 @@ enum Command {
     /// day. One params record, raw: near a sphere's falloff edge the live light is mostly the
     /// continent global, and `lightblend` shows what wins there.
     Lightbands {
-        /// Map id (0 = Eastern Kingdoms, 1 = Kalimdor).
+        /// Map id (0 = Eastern Kingdoms, 1 = Kalimdor, 530 = Outland).
         map: u32,
         /// World-space X (raw WoW yards; may be negative).
         #[arg(allow_hyphen_values = true)]
@@ -423,7 +423,7 @@ enum Command {
     /// `Light.dbc` slots names (clear, clear underwater, storm, storm underwater, death), the unset
     /// ones that fall back to clear, and each one's fog, ambient and diffuse.
     Lightslots {
-        /// Map id (0 = Eastern Kingdoms, 1 = Kalimdor).
+        /// Map id (0 = Eastern Kingdoms, 1 = Kalimdor, 530 = Outland).
         map: u32,
         /// World-space X (raw WoW yards; may be negative).
         #[arg(allow_hyphen_values = true)]
@@ -440,7 +440,7 @@ enum Command {
     /// Dump every light sphere covering a position (distance, falloff, blend alpha, clear ambient
     /// and sun), then the area-blend result against the single `pick_light` sample.
     Lightblend {
-        /// Map id (0 = Eastern Kingdoms, 1 = Kalimdor).
+        /// Map id (0 = Eastern Kingdoms, 1 = Kalimdor, 530 = Outland).
         map: u32,
         /// World-space X (raw WoW yards; may be negative).
         #[arg(allow_hyphen_values = true)]

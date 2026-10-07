@@ -854,7 +854,7 @@ pub(crate) fn wow_font(assets: &AssetServer) -> Handle<Font> {
     assets.load("mpq://Fonts/FRIZQT__.ttf")
 }
 
-// ── 1.12 display names ──────────────────────────────────────────────────────────────────────────
+// ── TBC display names ──────────────────────────────────────────────────────────────────────────
 
 pub(crate) fn race_name(race: u8) -> &'static str {
     match race {
@@ -866,6 +866,8 @@ pub(crate) fn race_name(race: u8) -> &'static str {
         6 => "Tauren",
         7 => "Gnome",
         8 => "Troll",
+        10 => "Blood Elf",
+        11 => "Draenei",
         _ => "?",
     }
 }

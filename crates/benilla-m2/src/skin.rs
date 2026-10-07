@@ -91,14 +91,14 @@ impl M2Model {
         let indices = read_u16s(n_idx, o_idx)?;
         let triangles = read_u16s(n_tri, o_tri)?;
 
-        // M2SkinSection: 32 bytes before v260, 48 from it; the triangle range is @8 and @10.
-        let sec = if self.version < 260 { 32 } else { 48 };
+        // Every final 2.4.3 M2 is v260–v263: M2SkinSection is 48 bytes, triangle range @8/@10.
+        const SEC: usize = 48;
         // `n_sub` and `n_bat` are unvalidated, so the reservations are capped.
         let sub_avail = bytes.len().saturating_sub(o_sub);
-        let mut submeshes = Vec::with_capacity(capped(n_sub, sec, sub_avail));
+        let mut submeshes = Vec::with_capacity(capped(n_sub, SEC, sub_avail));
         for i in 0..n_sub {
             let s = bytes
-                .bytes_at(o_sub + i * sec, sec)
+                .bytes_at(o_sub + i * SEC, SEC)
                 .ok_or(Error::Truncated)?;
             submeshes.push(SkinSection {
                 id: s.u16_at(0).ok_or(Error::Truncated)?, // skinSectionId @ +0x00

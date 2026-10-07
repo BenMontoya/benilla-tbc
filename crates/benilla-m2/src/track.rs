@@ -2,10 +2,10 @@
 
 use benilla_bytes::ByteExt;
 
-/// One `M2Track` (v256, `0x1c` bytes): `interp`@0, `gseq`@2, then ranges, timestamps (u32 ms) and
+/// One TBC `M2Track` (`0x1c` bytes): `interp`@0, `gseq`@2, then ranges, timestamps (u32 ms) and
 /// values as `(count, offset)` pairs @`0x04`, `0x0c`, `0x14`. Keys are absolute timeline ms: a
 /// sequence track keys inside each sequence's band, a `gseq` track loops on its global sequence
-/// (`0x713d50`). The key count is `min(timestamps, values)`, as vanilla art pads one array.
+/// (`0x713d50`). The key count is `min(timestamps, values)`, as stock TBC art can pad one array.
 #[derive(Clone, Debug)]
 pub struct M2Track<V> {
     /// `0` step (the previous key), nonzero linear: the scalar sampler's two-way test (`0x71af20`).
@@ -108,7 +108,8 @@ pub(crate) fn track_vec3_timed(b: &[u8], track_ofs: usize) -> M2Vec3Track {
     track_read(b, track_ofs, 12, rd_vec3)
 }
 
-/// Read a quaternion track: 4×f32, as vanilla does not compress quaternion keys.
+/// Read a non-bone quaternion track as 4×f32. TBC bone rotations use their separate packed
+/// 4×u16 path; texture-transform rotations keep this pre-Wrath track representation.
 pub(crate) fn track_quat(b: &[u8], track_ofs: usize) -> M2QuatTrack {
     track_read(b, track_ofs, 16, |b, o| {
         Some([

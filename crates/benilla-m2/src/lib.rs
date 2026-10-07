@@ -1,5 +1,6 @@
-//! An M2 (MD20) model reader for WoW 1.12.1. Vanilla models are MD20 version 256 or 257: a header
-//! of `M2Array`s (`count`, file `offset`), the arrays they name, and the embedded skin profiles.
+//! An M2 (MD20) model reader for Burning Crusade 2.4.3. The final stock 2.4.3 chain contains only
+//! MD20 versions 260–263, including inherited old-world art. Files contain a header of `M2Array`s
+//! (`count`, file `offset`), the arrays they name, and embedded skin profiles.
 //! Particle emitters and lights are not read here; benilla-formats reads them from the raw bytes.
 
 mod error;
@@ -27,6 +28,26 @@ use benilla_bytes::{capped, ByteExt};
 use error::Result;
 use track::{track_fix16, track_quat, track_spline_f32, track_spline_vec3, track_vec3_timed};
 
+/// The one bone-record layout used by every MD20 model in the final 2.4.3 chain (v260–v263).
+#[derive(Clone, Copy)]
+pub struct M2BoneLayout {
+    pub stride: usize,
+    pub translation: usize,
+    pub rotation: usize,
+    pub scale: usize,
+    pub pivot: usize,
+}
+
+/// TBC v260–v263 inserts `boneNameCRC` at +0x0c: 112-byte bones, shifted tracks/pivot, and
+/// rotations stored as packed 4×u16 keys. The final stock chain contains no v256–v259 M2s.
+pub const BONE_LAYOUT: M2BoneLayout = M2BoneLayout {
+    stride: 0x70,
+    translation: 0x10,
+    rotation: 0x2c,
+    scale: 0x48,
+    pivot: 0x64,
+};
+
 /// A `C3Vector` (3×f32) at `o`.
 fn rd_c3(b: &[u8], o: usize) -> Option<C3> {
     Some(C3 {
@@ -43,9 +64,10 @@ pub fn parse_m2(cursor: &mut Cursor<&[u8]>) -> Result<M2Format> {
         return Err(Error::NotMd20);
     }
     let version = b.u32_at(4).ok_or(Error::Truncated)?;
-    if !(256..=263).contains(&version) {
+    if !(260..=263).contains(&version) {
         return Err(Error::UnsupportedVersion(version));
     }
+    let bone_layout = BONE_LAYOUT;
 
     // Walk the header's `(count, offset)` M2Arrays, 8 bytes each, pre-Wrath layout.
     let arr = |p: usize| -> Result<(u32, u32)> {
@@ -65,37 +87,24 @@ pub fn parse_m2(cursor: &mut Cursor<&[u8]>) -> Result<M2Format> {
     // AnimationLookup (`+0x24`), which the reference's ownership test `0x711960` reads.
     let animation_lookup_arr = arr(p)?;
     p += 8;
-    // PlayableAnimationLookup (`+0x2c`): pre-Wrath only, as is every version admitted above.
-    let playable_animation_lookup_arr = if (256..=263).contains(&version) {
-        let v = arr(p)?;
-        p += 8;
-        v
-    } else {
-        (0, 0)
-    };
+    // PlayableAnimationLookup (`+0x2c`), present in every admitted TBC MD20 version.
+    let playable_animation_lookup_arr = arr(p)?;
+    p += 8;
     let bones = arr(p)?;
     p += 8;
     let _key_bone = arr(p)?;
     p += 8;
     let vertices = arr(p)?;
     p += 8;
-    let views = if version <= 263 {
-        let v = arr(p)?;
-        p += 8;
-        v
-    } else {
-        p += 4;
-        (0, 0)
-    };
+    let views = arr(p)?;
+    p += 8;
     let colors_arr = arr(p)?; // header 0x54: M2Color[] (colour + alpha tracks)
     p += 8;
     let textures = arr(p)?;
     p += 8;
     let transparency_arr = arr(p)?; // header 0x64: M2TextureWeight[] (weight tracks)
     p += 8;
-    if version <= 263 {
-        p += 8; // texture_flipbooks (pre-Wrath)
-    }
+    p += 8; // texture_flipbooks (TBC pre-Wrath header)
     let tex_anim_arr = arr(p)?; // header 0x74: M2TextureTransform[] (3 UV-animation tracks each)
     p += 8;
     let _color_repl = arr(p)?;
@@ -211,13 +220,17 @@ pub fn parse_m2(cursor: &mut Cursor<&[u8]>) -> Result<M2Format> {
         });
     }
 
-    // Bones: 108 bytes in v256: key bone i32, flags u32, parent i16, submesh u16 (no boneNameCRC in
-    // vanilla), three 28-byte tracks, pivot C3 @96. The reference zeroes a NaN pivot component.
+    // Bones: every stock 2.4.3 model is v260–v263. A 4-byte boneNameCRC follows submesh at +0x0c,
+    // making each record 112 bytes; tracks begin at +0x10/+0x2c/+0x48 and pivot is +0x64.
+    // The reference zeroes a NaN pivot component.
     let bones_avail = b.len().saturating_sub(bones.1 as usize);
-    let mut bone_list = Vec::with_capacity(capped(bones.0 as usize, 108, bones_avail));
+    let mut bone_list = Vec::with_capacity(capped(bones.0 as usize, bone_layout.stride, bones_avail));
     for i in 0..bones.0 as usize {
-        let bn = get(bones.1 as usize + i * 108, 108)?;
-        let mut pivot = rd_c3(bn, 96).ok_or(Error::Truncated)?;
+        let bn = get(
+            bones.1 as usize + i * bone_layout.stride,
+            bone_layout.stride,
+        )?;
+        let mut pivot = rd_c3(bn, bone_layout.pivot).ok_or(Error::Truncated)?;
         if pivot.x.is_nan() {
             pivot.x = 0.0;
         }
@@ -468,13 +481,12 @@ pub fn parse_m2(cursor: &mut Cursor<&[u8]>) -> Result<M2Format> {
             animation_lookup,
             playable_animation_lookup,
             views,
-            version,
         },
     })
 }
 
 /// Parse the MD20 camera array (header `0x124`, stride `0x7c`) alone; the offset is absolute, as
-/// versions 256–263 agree up to it. A truncated table yields the records that fit.
+/// versions 260–263 agree up to it. A truncated table yields the records that fit.
 pub fn parse_cameras(b: &[u8]) -> Vec<M2Camera> {
     let (Some(count), Some(ofs)) = (b.u32_at(0x124), b.u32_at(0x128)) else {
         return Vec::new();
