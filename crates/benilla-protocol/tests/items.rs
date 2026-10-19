@@ -13,11 +13,11 @@ fn item_query_wire() {
     // CMSG_ITEM_QUERY_SINGLE: `u32` entry and the full item guid (vmangos `QueryItem`).
     assert_eq!(messages::item_query(117, 0), hx("750000000000000000000000"));
 
-    // CMSG_USE_ITEM (vmangos UseItem::ReadFromWorldPacket): bagIndex, slot, spellSlot, then a
-    // target block, here self (`u16` mask 0). Backpack slot 1 is bag 255, player slot 23.
+    // TBC CMSG_USE_ITEM: bagIndex, slot, spellSlot, cast_count, raw u64 item GUID,
+    // then u32 target mask and payload. Backpack slot 1 is bag 255, player slot 23.
     assert_eq!(
-        messages::use_item(255, 23, 0, messages::UseItemTarget::SelfImplicit),
-        hx("ff17000000")
+        messages::use_item(255, 23, 0, 0x1122_3344_5566_7788, messages::UseItemTarget::SelfImplicit),
+        hx("ff170000887766554433221100000000")
     );
 
     // A key in a lock: TARGET_FLAG_GAMEOBJECT (0x0800) and the object's packed guid, as the
@@ -29,53 +29,53 @@ fn item_query_wire() {
             255,
             81,
             0,
-            messages::UseItemTarget::Object(0xF110_000C_1F00_A3B2)
+            0u64, messages::UseItemTarget::Object(0xF110_000C_1F00_A3B2)
         ),
-        hx("ff51000008dbb2a31f0c10f1"),
+        hx("ff510000000000000000000000080000dbb2a31f0c10f1"),
     );
 
     // Packed guid 1 is mask 0x01 and one byte; the spellSlot ordinal is the third byte.
     assert_eq!(
-        messages::use_item(255, 81, 2, messages::UseItemTarget::Object(1)),
-        hx("ff510200080101")
+        messages::use_item(255, 81, 2, 0u64, messages::UseItemTarget::Object(1)),
+        hx("ff5102000000000000000000000800000101")
     );
 
     // A unit target (a bandage, a soulstone): TARGET_FLAG_UNIT (0x0002) and the packed guid, the
     // block CMSG_CAST_SPELL writes; the reference builds both in one sender (`0x6e54f0`).
     assert_eq!(
-        messages::use_item(255, 24, 0, messages::UseItemTarget::Unit(1)),
-        hx("ff180002000101")
+        messages::use_item(255, 24, 0, 0u64, messages::UseItemTarget::Unit(1)),
+        hx("ff1800000000000000000000020000000101")
     );
 
     // A thrown item (dynamite, a grenade): TARGET_FLAG_DEST_LOCATION (0x0040) and three `f32`
     // coords, the tail `cast_spell_at_dest` writes.
     assert_eq!(
-        messages::use_item(19, 3, 1, messages::UseItemTarget::Dest([1.0, 2.0, 3.0])),
-        hx("13030140000000803f0000004000004040")
+        messages::use_item(19, 3, 1, 0u64, messages::UseItemTarget::Dest([1.0, 2.0, 3.0])),
+        hx("130301000000000000000000400000000000803f0000004000004040")
     );
 
     // The source form (0x0020), as for spell 265 on Martin Fury: the reference (`0x6e60f0`) sets
     // 0x0020 where a dest sets 0x0040. Martin Fury is worn, so bag 255, slot 3 (body).
     assert_eq!(
-        messages::use_item(255, 3, 0, messages::UseItemTarget::Source([1.0, 2.0, 3.0])),
-        hx("ff030020000000803f0000004000004040")
+        messages::use_item(255, 3, 0, 0u64, messages::UseItemTarget::Source([1.0, 2.0, 3.0])),
+        hx("ff0300000000000000000000200000000000803f0000004000004040")
     );
 
     // An item target (a poison or oil on a weapon): TARGET_FLAG_ITEM (0x0010) and the packed
     // guid, as `cast_spell_on_item` writes (reference `0x6e5b40`); 0xF150_0000_0000_ABCD packs to
     // mask 0xC3 and four bytes.
     assert_eq!(
-        messages::use_item(255, 24, 0, messages::UseItemTarget::Item(1)),
-        hx("ff180010000101")
+        messages::use_item(255, 24, 0, 0u64, messages::UseItemTarget::Item(1)),
+        hx("ff1800000000000000000000100000000101")
     );
     assert_eq!(
         messages::use_item(
             255,
             24,
             0,
-            messages::UseItemTarget::Item(0xF150_0000_0000_ABCD)
+            0u64, messages::UseItemTarget::Item(0xF150_0000_0000_ABCD)
         ),
-        hx("ff18001000c3cdab50f1")
+        hx("ff180000000000000000000010000000c3cdab50f1")
     );
 
     // A corpse target (Goblin Jumper Cables' Defibrillate, `Targets 0x8000`): the corpse bit and
@@ -86,9 +86,9 @@ fn item_query_wire() {
             255,
             24,
             0,
-            messages::UseItemTarget::Corpse(messages::CorpseTarget::Ally, 0xF101_0000_0000_002A)
+            0u64, messages::UseItemTarget::Corpse(messages::CorpseTarget::Ally, 0xF101_0000_0000_002A)
         ),
-        hx("ff18000080c12a01f1")
+        hx("ff180000000000000000000000800000c12a01f1")
     );
 
     // CMSG_AUTOEQUIP_ITEM (vmangos AutoEquipItem::ReadFromWorldPacket): bagIndex, slot.

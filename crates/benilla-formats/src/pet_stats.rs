@@ -16,14 +16,14 @@ const PET_PERSONALITY: &str = "DBFilesClient\\PetPersonality.dbc";
 const PET_LOYALTY: &str = "DBFilesClient\\PetLoyalty.dbc";
 
 /// `PetPersonality.dbc`'s column count, which `benilla-dbc` checks against the header.
-const PERSONALITY_FIELDS: usize = 19;
-const LOYALTY_FIELDS: usize = 10;
+const PERSONALITY_FIELDS: usize = 27;
+const LOYALTY_FIELDS: usize = 18;
 /// The enUS `Name` column in both files, the `+4` in the client's `[row + 4*locale + 4]`.
 const NAME_FIELD: usize = 1;
 
-const THRESHOLD_FIELD: usize = 0x28 / 4;
-const DAMAGE_FIELD: usize = 0x34 / 4;
-const LOYALTY_RATE_FIELD: usize = 0x40 / 4;
+const THRESHOLD_FIELD: usize = 18;
+const DAMAGE_FIELD: usize = 21;
+const LOYALTY_RATE_FIELD: usize = 24;
 
 /// The personality the client falls back to when the id is out of range or its row is missing
 /// (`0x4be96c`), "Personality: Standard".

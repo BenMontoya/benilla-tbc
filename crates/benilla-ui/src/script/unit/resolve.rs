@@ -107,7 +107,9 @@ fn base_of(token: &[u8]) -> Option<(Base, usize)> {
 /// Whether the resolver recognises the token, not whether it names a unit: `"party5"` solo is
 /// recognised and answers nil, and only a token none of its nine compares match raises.
 pub(crate) fn token_recognised(token: &str) -> bool {
-    token.eq_ignore_ascii_case("npc") || base_of(token.as_bytes()).is_some()
+    token.eq_ignore_ascii_case("npc")
+        || token.eq_ignore_ascii_case("focus")
+        || base_of(token.as_bytes()).is_some()
 }
 
 /// The inline base-10 parse after `party`, `partypet`, `raid` and `raidpet`, then `dec` to a
@@ -127,7 +129,8 @@ fn index_of(s: &[u8]) -> (u32, usize) {
 /// compares, as `npc` is one full-string compare.
 pub fn parse_unit_token(token: &str) -> UnitTokenParse {
     let bytes = token.as_bytes();
-    if bytes.is_empty() {
+    if bytes.is_empty() || token.eq_ignore_ascii_case("focus") {
+        // Focus is a valid TBC unit token; no focus GUID has been selected yet.
         return UnitTokenParse::Nobody;
     }
     let Some((base, len)) = base_of(bytes) else {

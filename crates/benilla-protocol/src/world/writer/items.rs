@@ -23,11 +23,12 @@ impl WorldWriter {
         bag_index: u8,
         slot: u8,
         spell_slot: u8,
+        item_guid: u64,
         target: messages::UseItemTarget,
     ) -> Result<()> {
         self.send(
             opcode::CMSG_USE_ITEM,
-            &messages::use_item(bag_index, slot, spell_slot, target),
+            &messages::use_item(bag_index, slot, spell_slot, item_guid, target),
         )
     }
 

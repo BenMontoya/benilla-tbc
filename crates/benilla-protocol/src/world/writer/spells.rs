@@ -23,6 +23,11 @@ impl WorldWriter {
         self.send(opcode::CMSG_CANCEL_AURA, &messages::cancel_aura(spell_id))
     }
 
+    /// TBC `CMSG_TOTEM_DESTROYED`: the wire payload is one zero-based slot.
+    pub fn destroy_totem(&mut self, slot: u8) -> Result<()> {
+        self.send(opcode::CMSG_TOTEM_DESTROYED, &[slot])
+    }
+
     /// `CMSG_CAST_SPELL` at a GameObject: the open-lock cast on a chest, vein or herb. The server
     /// checks the skill, and a chest answers with its loot.
     pub fn cast_spell_gameobject(&mut self, spell_id: u32, go_guid: u64) -> Result<()> {

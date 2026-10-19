@@ -1,4 +1,4 @@
-use mlua::{ObjectLike, Table};
+use mlua::{ObjectLike, Table, Value};
 
 use crate::framexml::{self, Element};
 
@@ -35,6 +35,28 @@ impl Loader<'_> {
             }
         }
 
+        // TBC FrameXML declares typed frame attributes, including UIParent panel offsets.
+        // Initialize these before frame OnLoad runs.
+        for list in children_named(el, "Attributes") {
+            for attribute in children_named(list, "Attribute") {
+                let (Some(name), Some(raw)) = (attribute.attr("name"), attribute.attr("value")) else {
+                    continue;
+                };
+                let value = match attribute.attr("type").unwrap_or("string") {
+                    "number" => raw.parse::<f64>().map(Value::Number).unwrap_or(Value::Nil),
+                    "boolean" => Value::Boolean(raw.eq_ignore_ascii_case("true")),
+                    "nil" => Value::Nil,
+                    _ => match self.lua().create_string(raw) {
+                        Ok(v) => Value::String(v),
+                        Err(e) => {
+                            self.report.errors.push(format!("{dbg}: <Attribute name={name}>: {e}"));
+                            continue;
+                        }
+                    },
+                };
+                self.call(wrapper, "SetAttribute", (name.to_string(), value), dbg);
+            }
+        }
         // A model pane's `file=` is `SetModel` (`0x76cac0`).
         let model_kind = super::model_kind_tag(&el.tag);
         if model_kind {

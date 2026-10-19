@@ -87,6 +87,8 @@ fn translate(pattern: &str) -> String {
         match chars.next() {
             // The patched escape table: both are `\b`.
             Some('<' | '>') => out.push_str("\\b"),
+            // PCRE horizontal whitespace is unsupported by the Rust regex engine.
+            Some('h') => out.push_str("[ \t]"),
             Some(next) => {
                 out.push('\\');
                 out.push(next);

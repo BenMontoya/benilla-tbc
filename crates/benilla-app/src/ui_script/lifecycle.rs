@@ -357,6 +357,21 @@ pub(crate) fn load_ingame_ui_on_world_entry(world: &mut World) {
     // seats either, and the load measures text (the stock tab template's `OnLoad` sizes from its
     // text width, `UIPanelTemplates.xml:370-373`), which answers 0 with no measurer.
     seat_raster_seam_for_load(world, &mut script);
+    // This VM is minted after the video feed's prior tick; it has no mode list yet.
+    // Seed the live window before UIParent.lua's UpdateMenuBarTop divides its
+    // selected "WxH" pair, otherwise tonumber(nil) fails at first OnLoad.
+    let initial_mode = {
+        let mut q = world.query_filtered::<&bevy::window::Window, With<bevy::window::PrimaryWindow>>();
+        q.iter(world).next().map(|w| benilla_ui::script::ScreenResolution {
+            width: w.resolution.width().round() as u32,
+            height: w.resolution.height().round() as u32,
+        })
+    };
+    let mode = initial_mode.unwrap_or(benilla_ui::script::ScreenResolution {
+        width: 800,
+        height: 600,
+    });
+    script.set_screen_resolutions(vec![mode], Some(mode));
     // Read out of the world first: the bracket below borrows `world` for the chat-cache restore.
     let zoom = {
         let z = world.resource::<crate::minimap::MinimapZoom>();

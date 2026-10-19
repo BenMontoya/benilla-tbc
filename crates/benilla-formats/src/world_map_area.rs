@@ -77,6 +77,7 @@ fn schema() -> Schema {
     for name in ["LocLeft", "LocRight", "LocTop", "LocBottom"] {
         s.add_field(SchemaField::new(name, FieldType::Float32));
     }
+    s.add_field(SchemaField::new("VirtualMapID", FieldType::Int32));
     s
 }
 

@@ -256,7 +256,8 @@ fn group_list_party_two_members_master_loot() {
                     method: 2,
                     master: 0x3333,
                     threshold: 3,
-                })
+                    difficulty: 0,
+                    })
             );
         }
         other => panic!("expected GroupList, got {}", other.name()),
@@ -325,7 +326,8 @@ fn group_list_raid_with_assistant_flag() {
                     method: 1,
                     master: 0,
                     threshold: 2,
-                })
+                    difficulty: 0,
+                    })
             );
         }
         other => panic!("expected GroupList, got {}", other.name()),

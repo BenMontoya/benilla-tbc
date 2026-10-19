@@ -185,6 +185,10 @@ impl super::UiScript {
                 ready_check_force_close(lua, &mut model);
             }
         } else {
+            model.ready_check.unanswered = model.party.raid.iter()
+                .filter(|m| m.guid != model.party.own_guid)
+                .map(|m| m.guid).collect();
+            model.ready_check.answers.clear();
             model.ready_check.deadline = Some(now + READY_CHECK_SECONDS);
         }
     }
@@ -202,6 +206,7 @@ impl super::UiScript {
         };
         let name = member.name.clone();
         model.ready_check.unanswered.retain(|g| *g != guid);
+        model.ready_check.answers.insert(guid, ready);
         if !ready {
             let template: String = lua
                 .globals()
@@ -606,11 +611,29 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
                 .map(|m| m.guid)
                 .filter(|g| *g != own)
                 .collect();
+            model.ready_check.answers.clear();
             model.ready_check.deadline = Some(now + READY_CHECK_SECONDS);
             model.party_requests.push(PartyRequest::ReadyCheckStart);
             Ok(())
         })?,
     )?;
+    // TBC ready-check frames ask by unit token; the server response is reflected in
+    // the same roster state already used by the party/raid readiness dialog.
+    g.set("GetReadyCheckStatus", lua.create_function(|lua, unit: String| {
+        let model = lua.app_data_ref::<Model>().expect("model app_data");
+        let guid = model.unit_guids.guid_of(&unit)?;
+        let result = guid.and_then(|g| {
+            if let Some(ready) = model.ready_check.answers.get(&g) {
+                Some(if *ready { "ready" } else { "notready" })
+            } else if model.ready_check.unanswered.contains(&g) {
+                Some("waiting")
+            } else {
+                None
+            }
+        });
+        Ok(result)
+    })?)?;
+
     // CheckReadyCheckTime() (`0x4bc120` → `0x4bb310`), called every frame from stock
     // `UIParent.xml`'s `OnUpdate`, alone drives the 30 s expiry. Once an armed deadline passes, and
     // only on the leader's client, it disarms and prints `RAID_MEMBERS_AFK` with the pending names
@@ -710,6 +733,8 @@ const READY_CHECK_SECONDS: f64 = 30.0;
 pub(crate) struct ReadyCheckState {
     pub(crate) deadline: Option<f64>,
     pub(crate) unanswered: Vec<u64>,
+    /// Last reported status per raid member for the TBC GetReadyCheckStatus API.
+    pub(crate) answers: std::collections::HashMap<u64, bool>,
     pub(crate) lines: Vec<String>,
 }
 

@@ -34,7 +34,7 @@ impl CreatureTypeFlags {
 fn creature_type_schema() -> Schema {
     let mut s = Schema::new("CreatureType");
     s.add_field(SchemaField::new("ID", FieldType::UInt32));
-    for i in 0..8 {
+    for i in 0..16 {
         s.add_field(SchemaField::new(format!("Name{i}"), FieldType::String));
     }
     s.add_field(SchemaField::new("NameFlags", FieldType::UInt32));
@@ -51,7 +51,7 @@ pub fn load_creature_type_flags(chain: &mut Chain) -> Result<CreatureTypeFlags> 
     let mut flags = HashMap::with_capacity(rs.records().len());
     for r in rs.records() {
         if let Some(id) = u32_at(r, 0) {
-            flags.insert(id, u32_at(r, 10).unwrap_or(0));
+            flags.insert(id, u32_at(r, 18).unwrap_or(0));
         }
     }
     Ok(CreatureTypeFlags(flags))

@@ -82,15 +82,21 @@ impl FriendEntry {
     }
 }
 
-/// Read `SMSG_FRIEND_LIST` (vmangos `Social.cpp`, client `0x5ae350`): a `u8` count, then per
-/// friend a `u64` guid, a `u8` status and, only if the status is non-zero, `u32` area/level/class.
+/// TBC opcode 0x67 is SMSG_CONTACT_LIST: flags, count and contacts with optional
+/// online friend information. Ignored and muted contacts have no friend-status byte.
 pub fn read_friend_list(r: &mut impl Read) -> io::Result<Vec<FriendEntry>> {
-    let count = read_u8(r)?;
-    // vmangos `SOCIALMGR_FRIEND_LIMIT` 50 (`SocialMgr.h:114`).
+    let _list_flags = read_u32_le(r)?;
+    let count = read_u32_le(r)?;
     let mut friends = Vec::with_capacity(capacity_hint(count, 50));
     for _ in 0..count {
+        let guid = read_u64_le(r)?;
+        let flags = read_u32_le(r)?;
+        let _note = read_cstring(r)?;
+        if flags & 1 == 0 {
+            continue;
+        }
         let mut entry = FriendEntry {
-            guid: read_u64_le(r)?,
+            guid,
             status: read_u8(r)?,
             ..Default::default()
         };

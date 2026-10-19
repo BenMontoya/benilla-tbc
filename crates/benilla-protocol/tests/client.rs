@@ -567,13 +567,17 @@ fn name_and_creature_query_roundtrip() {
         "596f756e6720576f6c6600", // "Young Wolf"
         "000000",                 // name2..4 empty
         "5465737400",             // subname "Test"
+        "00",                     // TBC icon name, empty
         "10000000",               // type_flags = 0x10 (hide-faction-tooltip)
         "01000000",               // type = 1 (Beast)
         "01000000",               // pet_family = 1 (Wolf)
         "02000000",               // rank = 2 (rare elite)
         "0000000000000000",       // unk, pet_spell_list_id
-        "15020000",               // display_id = 533, the model a stabled pet is drawn from
-        "0101"                    // civilian, racial_leader
+        "15020000",               // first display_id = 533
+        "000000000000000000000000", // three additional TBC display ids
+        "0000803f",               // health multiplier 1.0
+        "0000803f",               // mana multiplier 1.0
+        "01"                      // TBC racial_leader; there is no civilian byte
     ));
     match messages::parse_server(messages::opcode::SMSG_CREATURE_QUERY_RESPONSE, &body).unwrap() {
         ServerPacket::CreatureQueryResponse { entry, info } => {
@@ -587,7 +591,7 @@ fn name_and_creature_query_roundtrip() {
                     pet_family: 1,
                     rank: 2,
                     type_flags: 0x10,
-                    civilian: true,
+                    civilian: false,
                     racial_leader: true,
                     display_id: 533,
                 })

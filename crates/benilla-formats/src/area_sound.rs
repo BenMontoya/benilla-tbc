@@ -164,7 +164,7 @@ fn area_schema() -> Schema {
         s.add_field(SchemaField::new(name, FieldType::UInt32));
     }
     s.add_field(SchemaField::new("AreaName", FieldType::String));
-    for i in 12..25 {
+    for i in 12..35 {
         s.add_field(SchemaField::new(format!("_pad{i}"), FieldType::UInt32));
     }
     s

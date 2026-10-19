@@ -261,5 +261,14 @@ pub(super) fn read_received_mail(r: &mut &[u8]) -> io::Result<f32> {
 /// The `MSG_QUERY_NEXT_MAIL_TIME` reply (the request is an empty body on the same opcode): an
 /// `f32`, `0.0` for unread mail waiting and `-86400.0` for none.
 pub(super) fn read_query_next_mail_time(r: &mut &[u8]) -> io::Result<f32> {
-    read_f32_le(r)
+    let seconds = read_f32_le(r)?;
+    let count = read_u32_le(r)?;
+    for _ in 0..count {
+        let _sender_guid = read_u64_le(r)?;
+        let _sender_id = read_u32_le(r)?;
+        let _sender_type = read_u32_le(r)?;
+        let _stationery = read_u32_le(r)?;
+        let _delay = read_f32_le(r)?;
+    }
+    Ok(seconds)
 }

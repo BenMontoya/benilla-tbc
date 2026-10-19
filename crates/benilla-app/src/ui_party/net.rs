@@ -27,6 +27,8 @@ pub(super) fn register(app: &mut App) {
         .net_handler(K::GroupLeaderChanged, on_leader_changed)
         .net_handler(K::GroupDestroyed, on_destroyed)
         .net_handler(K::GroupList, on_list)
+        .net_handler(K::DungeonDifficulty, on_dungeon_difficulty)
+        .net_handler(K::InstanceDifficulty, on_instance_difficulty)
         .net_handler(K::PartyCommandResult, on_command_result)
         .net_handler(K::PartyMemberStats, on_member_stats)
         .net_handler(K::RaidTargetSet, on_raid_target)
@@ -116,6 +118,9 @@ fn on_list(
         loot,
     } = ev
     {
+        if let Some(info) = loot {
+            group.dungeon_difficulty = info.difficulty;
+        }
         list(
             &mut group,
             &mut errors,
@@ -131,6 +136,18 @@ fn on_list(
             &index,
             &commands,
         );
+    }
+}
+
+fn on_dungeon_difficulty(In(ev): In<SessionEvent>, mut group: ResMut<GroupState>) {
+    if let SessionEvent::DungeonDifficulty { difficulty, .. } = ev {
+        group.dungeon_difficulty = difficulty.min(1) as u8;
+    }
+}
+
+fn on_instance_difficulty(In(ev): In<SessionEvent>, mut group: ResMut<GroupState>) {
+    if let SessionEvent::InstanceDifficulty { difficulty } = ev {
+        group.instance_difficulty = difficulty.min(1) as u8;
     }
 }
 

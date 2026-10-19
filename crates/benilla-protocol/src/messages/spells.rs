@@ -44,22 +44,23 @@ pub(super) fn read_cast_result(r: &mut &[u8]) -> io::Result<(u32, CastOutcome)> 
 // --- Start and go --------------------------------------------------------------------------------
 //
 // vmangos `SpellCastTargetFlags` (`SpellDefines.h:96-113`).
-const TARGET_FLAG_UNIT: u16 = 0x0002;
-const TARGET_FLAG_ITEM: u16 = 0x0010;
-const TARGET_FLAG_SOURCE_LOCATION: u16 = 0x0020;
-const TARGET_FLAG_DEST_LOCATION: u16 = 0x0040;
-const TARGET_FLAG_CORPSE_ENEMY: u16 = 0x0200;
-const TARGET_FLAG_GAMEOBJECT: u16 = 0x0800;
-const TARGET_FLAG_TRADE_ITEM: u16 = 0x1000;
-const TARGET_FLAG_STRING: u16 = 0x2000;
-const TARGET_FLAG_CORPSE_ALLY: u16 = 0x8000;
+const TARGET_FLAG_UNIT: u32 = 0x0002;
+const TARGET_FLAG_ITEM: u32 = 0x0010;
+const TARGET_FLAG_SOURCE_LOCATION: u32 = 0x0020;
+const TARGET_FLAG_DEST_LOCATION: u32 = 0x0040;
+const TARGET_FLAG_CORPSE_ENEMY: u32 = 0x0200;
+const TARGET_FLAG_GAMEOBJECT: u32 = 0x0800;
+const TARGET_FLAG_TRADE_ITEM: u32 = 0x1000;
+const TARGET_FLAG_STRING: u32 = 0x2000;
+const TARGET_FLAG_CORPSE_ALLY: u32 = 0x8000;
+const TARGET_FLAG_UNIT_MINIPET: u32 = 0x10000;
 
 /// A decoded `SpellCastTargets` in the server's write order (`SpellCastTargetsInfo.cpp:180-234`),
 /// not its read order: any mix of UNIT, GAMEOBJECT and CORPSE_* bits yields one packed guid.
 /// Item, corpse, source and string targets are read and dropped.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SpellCastTargets {
-    pub mask: u16,
+    pub mask: u32,
     pub unit_target: Option<u64>,
     /// The `TARGET_FLAG_GAMEOBJECT` target, such as the chest an open-lock cast opens.
     pub go_target: Option<u64>,
@@ -67,14 +68,15 @@ pub struct SpellCastTargets {
 }
 
 fn read_spell_cast_targets(r: &mut impl Read) -> io::Result<SpellCastTargets> {
-    let mask = read_u16_le(r)?;
+    let mask = read_u32_le(r)?;
     let mut unit_target = None;
     let mut go_target = None;
     if mask
         & (TARGET_FLAG_UNIT
             | TARGET_FLAG_GAMEOBJECT
             | TARGET_FLAG_CORPSE_ENEMY
-            | TARGET_FLAG_CORPSE_ALLY)
+            | TARGET_FLAG_CORPSE_ALLY
+            | TARGET_FLAG_UNIT_MINIPET)
         != 0
     {
         // One packed guid; the server's priority is UNIT, then GAMEOBJECT, then CORPSE_*.
@@ -136,6 +138,7 @@ pub(super) fn read_spell_start(r: &mut impl Read) -> io::Result<SpellStart> {
     let item_or_caster = read_packed_guid(r)?;
     let caster = read_packed_guid(r)?;
     let spell_id = read_u32_le(r)?;
+    let _cast_count = read_u8(r)?; // TBC cast sequence for matching requests
     let cast_flags = read_u16_le(r)?;
     let cast_time_ms = read_u32_le(r)?;
     let targets = read_spell_cast_targets(r)?;
@@ -181,6 +184,7 @@ pub(super) fn read_spell_go(r: &mut impl Read) -> io::Result<SpellGo> {
     let caster = read_packed_guid(r)?;
     let spell_id = read_u32_le(r)?;
     let cast_flags = read_u16_le(r)?;
+    let _server_time_ms = read_u32_le(r)?; // TBC spell-go timestamp
 
     // Both counts are `u8`s the server backfills (`Spell.cpp:4657-4658`); no tighter bound.
     let hit_count = read_u8(r)?;
@@ -234,18 +238,15 @@ pub(super) fn read_spell_delayed(r: &mut impl Read) -> io::Result<(u64, u32)> {
     Ok((caster, delay_ms))
 }
 
-/// Read `MSG_CHANNEL_START` (vmangos `Spell.cpp:4963-4966`): `(spell_id, duration_ms)`, sent only
-/// to the caster, so no guid.
-pub(super) fn read_channel_start(r: &mut impl Read) -> io::Result<(u32, u32)> {
-    let spell_id = read_u32_le(r)?;
-    let duration_ms = read_u32_le(r)?;
-    Ok((spell_id, duration_ms))
+/// cMaNGOS TBC Spell::SendChannelStart: packed caster, spell ID, duration.
+pub(super) fn read_channel_start(r: &mut impl Read) -> io::Result<(u64, u32, u32)> {
+    Ok((read_packed_guid(r)?, read_u32_le(r)?, read_u32_le(r)?))
 }
 
-/// Read `MSG_CHANNEL_UPDATE` (vmangos `Player.cpp:21141-21146`): ms left, caster only; 0 ends the
-/// channel, whether it finished or was interrupted.
-pub(super) fn read_channel_update(r: &mut impl Read) -> io::Result<u32> {
-    read_u32_le(r)
+/// cMaNGOS TBC Spell::SendChannelUpdate: packed caster, remaining milliseconds.
+/// Updates are broadcast to observers, not only the player casting.
+pub(super) fn read_channel_update(r: &mut impl Read) -> io::Result<(u64, u32)> {
+    Ok((read_packed_guid(r)?, read_u32_le(r)?))
 }
 
 /// Read `SMSG_SET_FLAT_SPELL_MODIFIER` / `SMSG_SET_PCT_SPELL_MODIFIER`: a `u8` `SpellFamilyFlags`
@@ -282,10 +283,11 @@ pub(super) fn read_play_spell_visual(r: &mut impl Read) -> io::Result<(u64, u32)
 pub fn cast_spell(spell_id: u32, target: Option<u64>) -> Vec<u8> {
     let mut body = Vec::with_capacity(16);
     body.extend_from_slice(&spell_id.to_le_bytes());
+    body.push(0); // TBC CMSG_CAST_SPELL cast_count (sequence), before 32-bit target mask.
     match target {
-        None => body.extend_from_slice(&0u16.to_le_bytes()),
+        None => body.extend_from_slice(&0u32.to_le_bytes()),
         Some(guid) => {
-            body.extend_from_slice(&2u16.to_le_bytes());
+            body.extend_from_slice(&TARGET_FLAG_UNIT.to_le_bytes());
             crate::wire::write_packed_guid(guid, &mut body).expect("vec write");
         }
     }
@@ -299,6 +301,7 @@ pub fn cast_spell(spell_id: u32, target: Option<u64>) -> Vec<u8> {
 pub fn cast_spell_gameobject(spell_id: u32, go_guid: u64) -> Vec<u8> {
     let mut body = Vec::with_capacity(16);
     body.extend_from_slice(&spell_id.to_le_bytes());
+    body.push(0); // TBC client cast sequence.
     body.extend_from_slice(&TARGET_FLAG_GAMEOBJECT.to_le_bytes());
     crate::wire::write_packed_guid(go_guid, &mut body).expect("vec write");
     body
@@ -317,7 +320,7 @@ pub enum CorpseTarget {
 
 impl CorpseTarget {
     /// The wire mask bit, which is also the flag-word bit the bind clears.
-    pub const fn target_flag(self) -> u16 {
+    pub const fn target_flag(self) -> u32 {
         match self {
             Self::Ally => TARGET_FLAG_CORPSE_ALLY,
             Self::Enemy => TARGET_FLAG_CORPSE_ENEMY,
@@ -331,6 +334,7 @@ impl CorpseTarget {
 pub fn cast_spell_corpse(spell_id: u32, target: CorpseTarget, corpse_guid: u64) -> Vec<u8> {
     let mut body = Vec::with_capacity(16);
     body.extend_from_slice(&spell_id.to_le_bytes());
+    body.push(0); // TBC client cast sequence.
     body.extend_from_slice(&target.target_flag().to_le_bytes());
     crate::wire::write_packed_guid(corpse_guid, &mut body).expect("vec write");
     body
@@ -341,6 +345,7 @@ pub fn cast_spell_corpse(spell_id: u32, target: CorpseTarget, corpse_guid: u64) 
 pub fn cast_spell_item(spell_id: u32, item_guid: u64) -> Vec<u8> {
     let mut body = Vec::with_capacity(16);
     body.extend_from_slice(&spell_id.to_le_bytes());
+    body.push(0); // TBC client cast sequence.
     body.extend_from_slice(&TARGET_FLAG_ITEM.to_le_bytes());
     crate::wire::write_packed_guid(item_guid, &mut body).expect("vec write");
     body
@@ -352,6 +357,7 @@ pub fn cast_spell_item(spell_id: u32, item_guid: u64) -> Vec<u8> {
 pub fn cast_spell_at_dest(spell_id: u32, dest: [f32; 3]) -> Vec<u8> {
     let mut body = Vec::with_capacity(18);
     body.extend_from_slice(&spell_id.to_le_bytes());
+    body.push(0); // TBC client cast sequence.
     body.extend_from_slice(&TARGET_FLAG_DEST_LOCATION.to_le_bytes());
     for c in dest {
         body.extend_from_slice(&c.to_le_bytes());
@@ -365,6 +371,7 @@ pub fn cast_spell_at_dest(spell_id: u32, dest: [f32; 3]) -> Vec<u8> {
 pub fn cast_spell_at_source(spell_id: u32, src: [f32; 3]) -> Vec<u8> {
     let mut body = Vec::with_capacity(18);
     body.extend_from_slice(&spell_id.to_le_bytes());
+    body.push(0); // TBC client cast sequence.
     body.extend_from_slice(&TARGET_FLAG_SOURCE_LOCATION.to_le_bytes());
     for c in src {
         body.extend_from_slice(&c.to_le_bytes());
@@ -388,11 +395,11 @@ mod tests {
         // spell 1, mask 0x0800 (no LOCKED 0x4000), packed guid 0x1234 (mask 0x03, bytes 34 12).
         assert_eq!(
             cast_spell_gameobject(1, 0x1234),
-            [0x01, 0x00, 0x00, 0x00, 0x00, 0x08, 0x03, 0x34, 0x12],
+            [0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x03, 0x34, 0x12],
             "CMSG_CAST_SPELL (GameObject/OPEN_LOCK) body"
         );
         // The self-cast shape stays distinct: mask 0, no guid.
-        assert_eq!(cast_spell(1, None), [0x01, 0x00, 0x00, 0x00, 0x00, 0x00]);
+        assert_eq!(cast_spell(1, None), [0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
     }
 
     /// Resurrection (2006) at a released player's corpse, `HIGHGUID_CORPSE` 0xF101
@@ -404,7 +411,8 @@ mod tests {
             cast_spell_corpse(2006, CorpseTarget::Ally, CORPSE),
             [
                 0xD6, 0x07, 0x00, 0x00, // spell id 2006
-                0x00, 0x80, // TARGET_FLAG_CORPSE_ALLY
+                0x00, // TBC cast count
+                0x00, 0x80, 0x00, 0x00, // TARGET_FLAG_CORPSE_ALLY (u32)
                 0xC1, 0x2A, 0x01, 0xF1, // packed guid: bytes 0, 6 and 7
             ],
             "CMSG_CAST_SPELL (ally corpse) body"
@@ -412,7 +420,7 @@ mod tests {
         // The enemy arm differs only in the mask.
         assert_eq!(
             cast_spell_corpse(2006, CorpseTarget::Enemy, CORPSE),
-            [0xD6, 0x07, 0x00, 0x00, 0x00, 0x02, 0xC1, 0x2A, 0x01, 0xF1],
+            [0xD6, 0x07, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0xC1, 0x2A, 0x01, 0xF1],
             "CMSG_CAST_SPELL (enemy corpse) body"
         );
     }
@@ -424,7 +432,8 @@ mod tests {
             cast_spell_at_dest(10, [1.0, -2.5, 3.0]),
             [
                 0x0A, 0x00, 0x00, 0x00, // spell id
-                0x40, 0x00, // TARGET_FLAG_DEST_LOCATION
+                0x00, // TBC cast count
+                0x40, 0x00, 0x00, 0x00, // TARGET_FLAG_DEST_LOCATION (u32)
                 0x00, 0x00, 0x80, 0x3F, // x = 1.0
                 0x00, 0x00, 0x20, 0xC0, // y = -2.5
                 0x00, 0x00, 0x40, 0x40, // z = 3.0
@@ -440,7 +449,8 @@ mod tests {
             cast_spell_at_source(265, [1.0, -2.5, 3.0]),
             [
                 0x09, 0x01, 0x00, 0x00, // spell id 265
-                0x20, 0x00, // TARGET_FLAG_SOURCE_LOCATION
+                0x00, // TBC cast count
+                0x20, 0x00, 0x00, 0x00, // TARGET_FLAG_SOURCE_LOCATION (u32)
                 0x00, 0x00, 0x80, 0x3F, // x = 1.0
                 0x00, 0x00, 0x20, 0xC0, // y = -2.5
                 0x00, 0x00, 0x40, 0x40, // z = 3.0

@@ -6,10 +6,10 @@ use mlua::{Lua, MultiValue, Value};
 
 use super::Model;
 
-/// The 1.12.1 client's build identity, as the strings in its binary spell it.
-const VERSION: &str = "1.12.1";
-const BUILD: &str = "5875";
-const BUILD_DATE: &str = "Sep 19 2006";
+/// The 2.4.3 client's build identity, as the strings in its binary spell it.
+const VERSION: &str = "2.4.3";
+const BUILD: &str = "8606";
+const BUILD_DATE: &str = "Jul 10 2008";
 
 pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
     let g = lua.globals();
@@ -88,8 +88,7 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
         })?,
     )?;
 
-    // Version, build and date, and no fourth value (the TOC number is a later expansion's): the
-    // in-game `GetBuildInfo` (`0x4884a0`) pushes three strings, the glue one (`0x46cd70`) five.
+    // TBC exposes the interface number as the fourth GetBuildInfo return value.
     g.set(
         "GetBuildInfo",
         lua.create_function(|lua, ()| {
@@ -97,6 +96,7 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
                 Value::String(lua.create_string(VERSION)?),
                 Value::String(lua.create_string(BUILD)?),
                 Value::String(lua.create_string(BUILD_DATE)?),
+                Value::Number(20400.0),
             ]))
         })?,
     )?;
@@ -245,19 +245,18 @@ impl super::UiScript {
 mod tests {
     use crate::script::UiScript;
 
-    /// Three strings and no fourth, as the in-game registrar pushes (`0x4884a0`); this VM is the
-    /// in-game one, not the glue (`0x46cd70`, five).
+    /// The TBC client returns version, build, date and interface number.
     #[test]
-    fn get_build_info_answers_as_the_1_12_1_client() {
+    fn get_build_info_answers_as_the_2_4_3_client() {
         let s = UiScript::new().unwrap();
         assert_eq!(
-            s.eval::<Vec<String>>("return { GetBuildInfo() }").unwrap(),
-            vec!["1.12.1", "5875", "Sep 19 2006"]
+            s.eval::<Vec<String>>("local a,b,c,d = GetBuildInfo(); return {a,b,c,tostring(d)}").unwrap(),
+            vec!["2.4.3", "8606", "Jul 10 2008", "20400"]
         );
         assert_eq!(
             s.arity("GetBuildInfo()").unwrap(),
-            3,
-            "three values, never a fourth"
+            4,
+            "TBC reports the UI interface version"
         );
     }
 

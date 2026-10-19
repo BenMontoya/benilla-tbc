@@ -4,12 +4,14 @@
 
 use std::time::Instant;
 
+mod tbc_state;
+
 use bevy::prelude::*;
 
 use benilla_ui::script::{ScriptValue, UiScript};
 
 use crate::creature_anim::Casting;
-use crate::net::{GuidIndex, SelfGuid};
+use crate::net::{ClientCommand, GuidIndex, NetCommands, SelfGuid};
 use crate::spell::{inflight, PendingCast, QueuedMeleeSpell};
 use crate::ui_action::Spells;
 use crate::ui_unit::UnitFeed;
@@ -102,10 +104,18 @@ pub(crate) fn feed_cast_bar(
     self_guid: Res<SelfGuid>,
     index: Res<GuidIndex>,
     casting: Query<&Casting>,
+    mut tbc_state: ResMut<tbc_state::TbcCastState>,
+    net: Option<Res<NetCommands>>,
 ) {
     let Some(mut script) = script else {
         return;
     };
+    tbc_state::feed(&mut script, &mut tbc_state, &self_guid, spells.as_deref());
+    for slot in script.take_tbc_destroy_totem_requests() {
+        if let Some(ref net) = net {
+            let _ = net.0.send(ClientCommand::DestroyTotem { slot });
+        }
+    }
     let now = Instant::now();
     // The auto-repeat key (`0xceac30`), which the reference reads first, then the in-flight slot
     // the cancel resolves, so the flag and the cancel agree.
@@ -192,6 +202,7 @@ pub(crate) struct UiCastPlugin;
 
 impl Plugin for UiCastPlugin {
     fn build(&self, app: &mut App) {
+        tbc_state::register(app);
         app.init_resource::<CastBarFeed>().add_systems(
             Update,
             // After the spell's local cancel, whose edges this drains the same frame.

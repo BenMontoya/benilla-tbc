@@ -11,7 +11,7 @@ use crate::dbc::{parse, str_at, u32_at};
 use crate::Chain;
 
 const SPELL_FOCUS_OBJECT: &str = "DBFilesClient\\SpellFocusObject.dbc";
-const SPELL_FOCUS_FIELDS: usize = 10;
+const SPELL_FOCUS_FIELDS: usize = 18;
 const COL_NAME_ENUS: usize = 1;
 
 /// `SpellFocusObject` id → its enUS name.
@@ -37,7 +37,7 @@ impl SpellFocusCatalog {
 fn schema() -> Schema {
     let mut s = Schema::new("SpellFocusObject");
     for i in 0..SPELL_FOCUS_FIELDS {
-        let ty = if i == COL_NAME_ENUS {
+        let ty = if (1..=16).contains(&i) {
             FieldType::String
         } else {
             FieldType::UInt32

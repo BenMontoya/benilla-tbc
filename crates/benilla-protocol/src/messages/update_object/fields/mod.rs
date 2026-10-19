@@ -292,6 +292,7 @@ const FIELD_PLAYER_FIELD_BYTES: u16 = 1486; // UNIT_END+0x40A: flags, combo poin
 // weekly-rank counters and dishonorable lifetime tally are intentionally not indexed.
 const FIELD_PLAYER_FIELD_LIFETIME_HONORABLE_KILLS: u16 = 1517;
 const FIELD_PLAYER_FIELD_YESTERDAY_CONTRIBUTION: u16 = 1516;
+#[cfg(test)]
 const FIELD_PLAYER_FIELD_BYTES2: u16 = 1518;
 
 /// `PLAYER_SKILL_INFO` slots on the wire, 3 fields each; vmangos fills only 127 (`Player.h:69`).

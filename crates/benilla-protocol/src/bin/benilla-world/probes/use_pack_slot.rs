@@ -34,7 +34,7 @@ impl Probe for UsePackSlot {
             "\nusing pack slot {n} (guid {guid:#x}, entry {entry}, stack {before}) → CMSG_USE_ITEM bag 255 slot {}",
             23 + n0
         );
-        session.use_item(255, 23 + n0, 0)?;
+        session.use_item(255, 23 + n0, 0, guid)?;
         let drain_until = Instant::now() + Duration::from_secs(5);
         let mut verdict: Option<String> = None;
         while Instant::now() < drain_until && verdict.is_none() {

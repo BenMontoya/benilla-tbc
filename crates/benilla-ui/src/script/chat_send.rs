@@ -105,6 +105,9 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
             Ok(model.known_languages.len() as i64)
         })?,
     )?;
+    // TBC scripts use the corrected name alongside the older misspelling.
+    let num_languages: mlua::Function = lua.globals().get("GetNumLaguages")?;
+    lua.globals().set("GetNumLanguages", num_languages)?;
     // GetLanguageByIndex(i), `0x49fbe0`: the `Name_lang` of the i-th known language, positional,
     // never a row number or a language id; past the end it pushes nothing.
     lua.globals().set(

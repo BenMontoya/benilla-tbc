@@ -27,11 +27,11 @@ const COL_T_PREREQ_RANK: usize = 16;
 const COL_T_FLAGS: usize = 19;
 const COL_T_REQUIRED_SPELL: usize = 20;
 
-const TALENT_TAB_FIELDS: usize = 15;
+const TALENT_TAB_FIELDS: usize = 23;
 const COL_TT_NAME_ENUS: usize = 1;
-const COL_TT_RACE_MASK: usize = 11;
-const COL_TT_CLASS_MASK: usize = 12;
-const COL_TT_BACKGROUND: usize = 14;
+const COL_TT_RACE_MASK: usize = 19;
+const COL_TT_CLASS_MASK: usize = 20;
+const COL_TT_BACKGROUND: usize = 22;
 
 /// The vanilla rank ceiling (`MAX_TALENT_RANK`, vmangos `DBCStructure.h`).
 pub const MAX_TALENT_RANK: usize = 5;
@@ -131,7 +131,7 @@ fn talent_schema() -> Schema {
 fn talent_tab_schema() -> Schema {
     let mut s = Schema::new("TalentTab");
     for i in 0..TALENT_TAB_FIELDS {
-        if i == COL_TT_NAME_ENUS {
+        if (1..=16).contains(&i) {
             s.add_field(SchemaField::new("NameEnUs", FieldType::String));
         } else if i == COL_TT_BACKGROUND {
             s.add_field(SchemaField::new("BackgroundFile", FieldType::String));

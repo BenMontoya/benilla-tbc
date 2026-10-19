@@ -270,6 +270,25 @@ pub(crate) struct Model {
     pub(crate) saved_instances: Vec<party::SavedInstanceInfo>,
     /// `SetRaidRosterSelection`'s raid row index, client-side only.
     pub(crate) raid_selection: i64,
+    /// TBC cast/channel information from server spell packets, keyed by caster GUID.
+    pub(crate) tbc_casts: HashMap<u64, super::stdlib::TimedSpellView>,
+    pub(crate) tbc_channels: HashMap<u64, super::stdlib::TimedSpellView>,
+    /// Four TBC totem slots; slots are exposed to Lua as 1..4.
+    pub(crate) tbc_totems: [Option<super::stdlib::TotemView>; 4],
+    pub(crate) totem_destroy_requests: Vec<u8>,
+    /// Three TBC server-backed mirror timers, 0=fatigue 1=breath 2=feign death.
+    pub(crate) tbc_mirror_timers: [Option<super::stdlib::MirrorTimerView>; 3],
+    /// Currency and personal arena ratings from TBC's private player update fields.
+    pub(crate) tbc_dungeon_difficulty: u32,
+    pub(crate) tbc_dungeon_change_requests: Vec<u8>,
+    /// Known title bitmask and chosen bit index (0 means no title).
+    pub(crate) tbc_title_names: HashMap<u32, (String, String)>,
+    pub(crate) tbc_known_titles: u64,
+    pub(crate) tbc_current_title: u32,
+    pub(crate) tbc_title_requests: Vec<u32>,
+    pub(crate) tbc_pvp_currencies: [u32; 2],
+    pub(crate) tbc_combat_ratings: [u32; 24],
+    pub(crate) tbc_arena_teams: [[u32; 6]; 3],
     /// `GetTime()`'s session seconds, which only the host moves ([`super::UiScript::tick`],
     /// [`super::UiScript::set_now`]); off `_G`, as the reference's clock is the OS tick count.
     pub(crate) now: f64,
@@ -414,6 +433,8 @@ pub(crate) struct Model {
 
     /// Globals `RegisterForSave` declared, in order: written at logout and re-run at load.
     pub(crate) saved_names: Vec<String>,
+    /// Globals registered by TBC as per-character UI settings.
+    pub(crate) saved_names_per_character: Vec<String>,
     /// Saved-variables files that failed to load; the shutdown write leaves them untouched.
     pub(crate) held_saved_files: Vec<std::path::PathBuf>,
 
@@ -425,6 +446,8 @@ pub(crate) struct Model {
     /// Per action, its usable, range, current and cooldown state; an absent one reads cold.
     pub(crate) action_states: HashMap<u32, super::action::StoredActionState>,
     pub(crate) bonus_bar_offset: u8,
+    pub(crate) action_bar_page: u8,
+    pub(crate) cooldown_timers: HashMap<crate::widget::FrameHandle, (f64, f64)>,
     /// `(action id, packed)` per slot `PickupAction`/`PlaceAction` changed, 0 clearing it: one
     /// `CMSG_SET_ACTION_BUTTON` each, so a drag swap is two sends.
     pub(crate) action_sets: Vec<(u32, u32)>,
@@ -1119,6 +1142,20 @@ impl Model {
             ready_check: party::ReadyCheckState::default(),
             saved_instances: Vec::new(),
             raid_selection: 0,
+            tbc_casts: HashMap::new(),
+            tbc_channels: HashMap::new(),
+            tbc_totems: std::array::from_fn(|_| None),
+            totem_destroy_requests: Vec::new(),
+            tbc_mirror_timers: std::array::from_fn(|_| None),
+            tbc_dungeon_difficulty: 1,
+            tbc_dungeon_change_requests: Vec::new(),
+            tbc_title_names: HashMap::new(),
+            tbc_known_titles: 0,
+            tbc_current_title: 0,
+            tbc_title_requests: Vec::new(),
+            tbc_pvp_currencies: [0; 2],
+            tbc_combat_ratings: [0; 24],
+            tbc_arena_teams: [[0; 6]; 3],
             now: 0.0,
             game_time: (0, 0),
             zone: Default::default(),
@@ -1184,11 +1221,14 @@ impl Model {
             video_caps: super::cvars::VideoCaps::default(),
             restart_gx_asks: 0,
             saved_names: Vec::new(),
+            saved_names_per_character: Vec::new(),
             held_saved_files: Vec::new(),
             keybinds: super::keybind::KeybindState::default(),
             actions: HashMap::new(),
             action_states: HashMap::new(),
             bonus_bar_offset: 0,
+            action_bar_page: 1,
+            cooldown_timers: HashMap::new(),
             action_sets: Vec::new(),
             ui_errors: Vec::new(),
             spellbook: spellbook::SpellBookState::default(),

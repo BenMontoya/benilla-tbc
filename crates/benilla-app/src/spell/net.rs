@@ -393,12 +393,15 @@ fn on_item_cooldown(In(ev): In<SessionEvent>, mut l: Lifecycle, sc: Scene) {
 
 fn on_channel(In(ev): In<SessionEvent>, mut l: Lifecycle) {
     match ev {
-        SessionEvent::ChannelStart {
-            spell_id,
-            duration_ms,
-        } => channel_start(spell_id, duration_ms, &mut l.channel, &mut l.cast_bar),
-        SessionEvent::ChannelUpdate { remaining_ms } => {
-            channel_update(remaining_ms, &mut l.channel, &mut l.cast_bar)
+        SessionEvent::ChannelStart { caster, spell_id, duration_ms } => {
+            if l.self_guid.0 == Some(caster) {
+                channel_start(spell_id, duration_ms, &mut l.channel, &mut l.cast_bar);
+            }
+        }
+        SessionEvent::ChannelUpdate { caster, remaining_ms } => {
+            if l.self_guid.0 == Some(caster) {
+                channel_update(remaining_ms, &mut l.channel, &mut l.cast_bar);
+            }
         }
         _ => {}
     }

@@ -301,6 +301,11 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
     // with a space, or a row whose zone text is empty, answers nil and sends nothing. A `frameId`
     // that truncates to 1..=10 registers the channel in that window's list, deduplicated by name
     // (`0x49ec24`), which is what brings a `/leave`-stripped channel's lines back to the window.
+    // Stock ChatFrame uses the permanent-channel alias for regular channel joins.
+    g.set("JoinPermanentChannel", lua.create_function(|lua, args: MultiValue| {
+        let join: mlua::Function = lua.globals().get("JoinChannelByName")?;
+        join.call::<MultiValue>(args)
+    })?)?;
     g.set(
         "JoinChannelByName",
         lua.create_function(

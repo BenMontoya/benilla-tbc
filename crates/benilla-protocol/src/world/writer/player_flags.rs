@@ -8,6 +8,11 @@ use crate::messages::opcode;
 use super::WorldWriter;
 
 impl WorldWriter {
+    /// Choose an earned character title by bit index, or 0 for no displayed title.
+    pub fn set_current_title(&mut self, title: u32) -> Result<()> {
+        self.send(opcode::CMSG_SET_TITLE, &title.to_le_bytes())
+    }
+
     /// `CMSG_TOGGLE_PVP`: flagging on shows as the `UNIT_FIELD_FLAGS` PvP bit; flagging off clears
     /// only the wish, and the flag drops after vmangos's 300 s timer (`Player::UpdatePvP`).
     pub fn toggle_pvp(&mut self) -> Result<()> {

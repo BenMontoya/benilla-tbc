@@ -92,6 +92,8 @@ pub(super) fn sandbox(lua: &Lua) -> mlua::Result<()> {
 /// Install the stdlib layer: the bare globals, `time`/`date` and the positional `format`.
 pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
     install_error_handler(lua)?;
+    install_secure_calls(lua)?;
+    install_tbc_baseline_apis(lua)?;
     install_time(lua)?;
     // Before the Lua layer, whose `debugprofile*` pair keeps its own `GetTime`.
     super::clock::install(lua)?;
@@ -100,6 +102,379 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
         .set_name("=[benilla wow stdlib]")
         .set_mode(mlua::ChunkMode::Text)
         .exec()?;
+    Ok(())
+}
+
+/// Live spell bar state pushed by the host from server packets.
+#[derive(Clone, Debug)]
+pub struct TimedSpellView {
+    pub name: String,
+    pub rank: String,
+    pub icon: Option<String>,
+    pub start_ms: f64,
+    pub end_ms: f64,
+}
+
+/// The state of one elemental totem slot.
+#[derive(Clone, Debug)]
+pub struct TotemView {
+    pub name: String,
+    pub icon: Option<String>,
+    pub start_secs: f64,
+    pub duration_secs: f64,
+}
+
+impl super::UiScript {
+    pub fn set_tbc_casts(
+        &mut self,
+        casts: std::collections::HashMap<u64, TimedSpellView>,
+        channels: std::collections::HashMap<u64, TimedSpellView>,
+    ) {
+        let mut model = self.model_mut();
+        model.tbc_casts = casts;
+        model.tbc_channels = channels;
+    }
+
+    /// Server-authoritative PvP currency, combat ratings, and arena membership.
+    /// Install the 2.4.3 CharTitles.dbc index for GetTitleName and GetNumTitles.
+    pub fn set_tbc_title_names(&mut self, rows: Vec<(u32, String, String)>) {
+        self.model_mut().tbc_title_names = rows.into_iter()
+            .map(|(id, male, female)| (id, (male, female))).collect();
+    }
+
+    pub fn set_tbc_titles(&mut self, known: u64, current: u32) {
+        let mut model = self.model_mut();
+        model.tbc_known_titles = known;
+        model.tbc_current_title = current;
+    }
+
+    pub fn take_tbc_title_requests(&mut self) -> Vec<u32> {
+        std::mem::take(&mut self.model_mut().tbc_title_requests)
+    }
+
+    pub fn take_tbc_dungeon_change_requests(&mut self) -> Vec<u8> {
+        std::mem::take(&mut self.model_mut().tbc_dungeon_change_requests)
+    }
+
+    pub fn set_tbc_dungeon_difficulty(&mut self, wire_difficulty: u8) {
+        self.model_mut().tbc_dungeon_difficulty = u32::from(wire_difficulty.min(1)) + 1;
+    }
+
+    pub fn set_tbc_pvp_fields(&mut self, currencies: [u32; 2], ratings: [u32; 24], teams: [[u32; 6]; 3]) {
+        let mut model = self.model_mut();
+        model.tbc_pvp_currencies = currencies;
+        model.tbc_combat_ratings = ratings;
+        model.tbc_arena_teams = teams;
+    }
+
+    pub fn set_tbc_totems(&mut self, totems: [Option<TotemView>; 4]) {
+        self.model_mut().tbc_totems = totems;
+    }
+
+    pub fn take_tbc_destroy_totem_requests(&mut self) -> Vec<u8> {
+        std::mem::take(&mut self.model_mut().totem_destroy_requests)
+    }
+}
+
+fn spell_info(lua: &Lua, unit: String, channel: bool) -> mlua::Result<mlua::MultiValue> {
+    let view = {
+        let model = lua.app_data_ref::<super::Model>().expect("model app_data");
+        let guid = model.unit_guids.guid_of(&unit)?;
+        let map = if channel { &model.tbc_channels } else { &model.tbc_casts };
+        guid.and_then(|g| map.get(&g))
+            .filter(|s| s.end_ms > model.now * 1000.0)
+            .cloned()
+    };
+    let Some(v) = view else { return Ok(mlua::MultiValue::new()) };
+    let mut args = vec![
+        Value::String(lua.create_string(&v.name)?),
+        Value::String(lua.create_string(&v.rank)?),
+        Value::String(lua.create_string(&v.name)?),
+    ];
+    args.push(match v.icon {
+        Some(s) => Value::String(lua.create_string(&s)?),
+        None => Value::Nil,
+    });
+    args.extend([
+        Value::Number(v.start_ms),
+        Value::Number(v.end_ms),
+        Value::Boolean(false), // not a tradeskill
+    ]);
+    if !channel {
+        args.push(Value::Integer(0)); // no client-side cast sequence attached
+    }
+    args.push(Value::Boolean(false)); // interruptible
+    Ok(mlua::MultiValue::from_vec(args))
+}
+
+/// Server-owned mirror timer state. The local session clock interpolates progress
+/// between START packets exactly as the client's 2.4.3 timer getter does.
+#[derive(Clone, Debug)]
+pub(crate) struct MirrorTimerView {
+    pub name: String,
+    pub remaining_ms: u32,
+    pub duration_ms: u32,
+    pub scale: i32,
+    pub paused: bool,
+    pub label: String,
+    pub since_secs: f64,
+}
+
+impl MirrorTimerView {
+    fn progress(&self, now: f64) -> f64 {
+        let elapsed_ms = if self.paused {
+            0.0
+        } else {
+            ((now - self.since_secs) * 1000.0).max(0.0) * f64::from(self.scale)
+        };
+        (f64::from(self.remaining_ms) + elapsed_ms)
+            .clamp(0.0, f64::from(self.duration_ms))
+    }
+}
+
+impl super::UiScript {
+    /// Feed a TBC mirror timer from SMSG_START/STOP_MIRROR_TIMER before firing the UI event.
+    pub fn set_tbc_mirror_timer(
+        &mut self,
+        kind: usize,
+        data: Option<(String, u32, u32, i32, bool, String)>,
+    ) {
+        let mut model = self.model_mut();
+        let since_secs = model.now;
+        if let Some(slot) = model.tbc_mirror_timers.get_mut(kind) {
+            *slot = data.map(|(name, remaining_ms, duration_ms, scale, paused, label)| {
+                MirrorTimerView { name, remaining_ms, duration_ms, scale, paused, label, since_secs }
+            });
+        }
+    }
+
+    pub fn pause_tbc_mirror_timer(&mut self, kind: usize, paused: bool) {
+        let mut model = self.model_mut();
+        let now = model.now;
+        if let Some(Some(timer)) = model.tbc_mirror_timers.get_mut(kind) {
+            timer.remaining_ms = timer.progress(now).round() as u32;
+            timer.since_secs = now;
+            timer.paused = paused;
+        }
+    }
+}
+
+/// TBC engine APIs: stateful entries read the host's spell/totem feeds.
+fn install_tbc_baseline_apis(lua: &Lua) -> mlua::Result<()> {
+    let g = lua.globals();
+    // These identifiers are referenced by stock TBC XML but absent from the
+    // extracted enUS GlobalStrings.lua. Seed localized-text fallbacks only.
+    g.set("HONOR_THISWEEK", "This Week")?;
+    g.set("ARTICLE_COUNT", "Articles")?;
+    g.set("ERROR", "Error")?;
+    g.set("GetAccountExpansionLevel", lua.create_function(|_, ()| Ok(1u32))?)?;
+    g.set("GetNumVoiceSessions", lua.create_function(|_, ()| Ok(0u32))?)?;
+    g.set("GetCurrentTitle", lua.create_function(|lua, ()| {
+        let bit = lua.app_data_ref::<super::Model>().expect("model").tbc_current_title;
+        Ok(if bit == 0 { -1i64 } else { i64::from(bit) })
+    })?)?;
+    g.set("GetNumTitles", lua.create_function(|lua, ()| {
+        Ok(lua.app_data_ref::<super::Model>().expect("model").tbc_title_names
+            .keys().copied().max().unwrap_or(0))
+    })?)?;
+    g.set("GetTitleName", lua.create_function(|lua, bit: u32| {
+        let model = lua.app_data_ref::<super::Model>().expect("model");
+        let female = model.unit("player").is_some_and(|u| u.sex == 3);
+        let name = model.tbc_title_names.get(&bit)
+            .map(|(male, female_name)| if female { female_name } else { male });
+        match name {
+            Some(value) => Ok(mlua::MultiValue::from_vec(vec![
+                Value::String(lua.create_string(value)?), Value::Boolean(true),
+            ])),
+            None => Ok(mlua::MultiValue::new()),
+        }
+    })?)?;
+    g.set("IsTitleKnown", lua.create_function(|lua, bit: u32| {
+        let model = lua.app_data_ref::<super::Model>().expect("model");
+        Ok(bit > 0 && bit < 64 && model.tbc_title_names.contains_key(&bit)
+            && model.tbc_known_titles & (1u64 << bit) != 0)
+    })?)?;
+    g.set("SetCurrentTitle", lua.create_function(|lua, bit: i32| {
+        let mut model = lua.app_data_mut::<super::Model>().expect("model");
+        // Invalid and unearned titles clear the displayed title (same as the stock API).
+        let title = if bit > 0 && bit < 64 && model.tbc_known_titles & (1u64 << bit) != 0 {
+            bit as u32
+        } else { 0 };
+        model.tbc_title_requests.push(title);
+        Ok(())
+    })?)?;
+    g.set("GetSummonFriendCooldown",
+        lua.create_function(|_, ()| Ok((0u32, 0u32)))?)?;
+    g.set("UnitChannelInfo",
+        lua.create_function(|lua, unit: String| spell_info(lua, unit, true))?)?;
+    g.set("UnitCastingInfo",
+        lua.create_function(|lua, unit: String| spell_info(lua, unit, false))?)?;
+    g.set("GetTotemInfo",
+        lua.create_function(|lua, slot: u32| {
+            let model = lua.app_data_ref::<super::Model>().expect("model app_data");
+            let view = usize::try_from(slot).ok()
+                .and_then(|s| s.checked_sub(1))
+                .and_then(|s| model.tbc_totems.get(s))
+                .and_then(Option::as_ref)
+                .filter(|t| t.duration_secs <= 0.0
+                    || t.start_secs + t.duration_secs > model.now);
+            Ok(match view {
+                Some(t) => (true, Some(t.name.clone()), t.start_secs,
+                            t.duration_secs, t.icon.clone()),
+                None => (false, None, 0.0, 0.0, None),
+            })
+        })?)?;
+    g.set("DestroyTotem",
+        lua.create_function(|lua, slot: u8| {
+            if (1..=4).contains(&slot) {
+                let mut model = lua.app_data_mut::<super::Model>().expect("model app_data");
+                model.totem_destroy_requests.push(slot - 1);
+            }
+            Ok(())
+        })?)?;
+    g.set("GetMirrorTimerInfo", lua.create_function(|lua, index: u32| {
+        let model = lua.app_data_ref::<super::Model>().expect("model app_data");
+        let timer = usize::try_from(index).ok().and_then(|i| i.checked_sub(1))
+            .and_then(|i| model.tbc_mirror_timers.get(i)).and_then(Option::as_ref);
+        let Some(timer) = timer else {
+            return Ok(mlua::MultiValue::from_vec(vec![
+                Value::String(lua.create_string("UNKNOWN")?),
+                Value::Integer(0), Value::Integer(0), Value::Integer(0),
+                Value::Integer(0), Value::String(lua.create_string("")?),
+            ]));
+        };
+        Ok(mlua::MultiValue::from_vec(vec![
+            Value::String(lua.create_string(&timer.name)?),
+            Value::Number(timer.progress(model.now)),
+            Value::Integer(i64::from(timer.duration_ms)),
+            Value::Integer(i64::from(timer.scale)),
+            Value::Integer(i64::from(timer.paused)),
+            Value::String(lua.create_string(&timer.label)?),
+        ]))
+    })?)?;
+    g.set("UnitInBattleground",
+        lua.create_function(|_, _unit: Option<String>| Ok(None::<u32>))?)?;
+    g.set("IsPossessBarVisible", lua.create_function(|_, ()| Ok(false))?)?;
+    // Neutral values for TBC-only stock FrameXML entry points whose server-backed
+    // features are not implemented yet. These do not simulate successful actions.
+    for name in ["CanSummonFriend", "IsVoiceChatEnabled", "UnitIsTalking",
+        "UnitIsPossessed"] {
+        g.set(name, lua.create_function(|_, _: Variadic<Value>| Ok(false))?)?;
+    }
+    for name in ["GetArenaTeam", "GetVoiceSessionInfo",
+        "GetPossessInfo"] {
+        g.set(name, lua.create_function(|_, _: Variadic<Value>| Ok(Value::Nil))?)?;
+    }
+    for name in ["GetVoiceCurrentSessionID",
+        "GetSelectedDisplayChannel", "Sound_ChatSystem_GetNumInputDrivers",
+        "VoiceEnumerateOutputDevices"] {
+        g.set(name, lua.create_function(|_, _: Variadic<Value>| Ok(0u32))?)?;
+    }
+    for name in ["ClearLFMAutofill", "ClearLFGAutojoin",
+        "CombatLogResetFilter"] {
+        g.set(name, lua.create_function(|_, _: Variadic<Value>| Ok(()))?)?;
+    }
+    // TBC PaperDollFrame stat tooltips: AP gained per supplied strength/agility.
+    // Source: Player::UpdateAttackPowerAndDamage (cMaNGOS TBC StatSystem.cpp).
+    g.set("GetAttackPowerForStat", lua.create_function(|lua, (stat, value): (u32, f64)| {
+        let model = lua.app_data_ref::<super::Model>().expect("model");
+        let class = model.unit("player").and_then(|u| u.class_file.as_deref()).unwrap_or("");
+        let per_point = match (stat, class) {
+            (1, "WARRIOR" | "PALADIN" | "SHAMAN" | "DRUID") => 2.0,
+            (1, "ROGUE" | "HUNTER" | "MAGE" | "PRIEST" | "WARLOCK") => 1.0,
+            (2, "ROGUE" | "HUNTER") => 1.0,
+            _ => 0.0,
+        };
+        Ok(value * per_point)
+    })?)?;
+    g.set("GetHonorCurrency", lua.create_function(|lua, ()| {
+        Ok(lua.app_data_ref::<super::Model>().expect("model").tbc_pvp_currencies[0])
+    })?)?;
+    g.set("GetArenaCurrency", lua.create_function(|lua, ()| {
+        Ok(lua.app_data_ref::<super::Model>().expect("model").tbc_pvp_currencies[1])
+    })?)?;
+    g.set("GetCombatRating", lua.create_function(|lua, kind: u32| {
+        let model = lua.app_data_ref::<super::Model>().expect("model");
+        Ok(usize::try_from(kind).ok().and_then(|i| i.checked_sub(1))
+            .and_then(|i| model.tbc_combat_ratings.get(i)).copied().unwrap_or(0))
+    })?)?;
+    g.set("GetArenaTeamId", lua.create_function(|lua, slot: u32| {
+        let model = lua.app_data_ref::<super::Model>().expect("model");
+        Ok(usize::try_from(slot).ok().and_then(|i| i.checked_sub(1))
+            .and_then(|i| model.tbc_arena_teams.get(i)).map_or(0, |team| team[0]))
+    })?)?;
+    g.set("GetArenaPersonalRating", lua.create_function(|lua, slot: u32| {
+        let model = lua.app_data_ref::<super::Model>().expect("model");
+        Ok(usize::try_from(slot).ok().and_then(|i| i.checked_sub(1))
+            .and_then(|i| model.tbc_arena_teams.get(i)).map_or(0, |team| team[5]))
+    })?)?;
+    g.set("CombatLog_Object_IsA", lua.create_function(|_, (flags, mask): (u32, u32)| {
+        Ok(flags & mask != 0)
+    })?)?;
+    // An unimplemented LFG catalogue must not claim a bogus numeric category.
+    g.set("GetLFGTypes", lua.create_function(|_, ()| Ok(mlua::MultiValue::new()))?)?;
+    g.set("GetMirrorTimerProgress", lua.create_function(|lua, name: String| {
+        let model = lua.app_data_ref::<super::Model>().expect("model app_data");
+        Ok(model.tbc_mirror_timers.iter().flatten()
+            .find(|t| t.name == name)
+            .map_or(0.0, |t| t.progress(model.now)))
+    })?)?;
+    g.set("GetCurrentDungeonDifficulty", lua.create_function(|lua, ()| {
+        Ok(lua.app_data_ref::<super::Model>().expect("model").tbc_dungeon_difficulty)
+    })?)?;
+    // TBC Lua difficulty indexes 1=normal, 2=heroic; the opcode writes 0 or 1.
+    g.set("SetDungeonDifficulty", lua.create_function(|lua, mode: u32| {
+        if (1..=2).contains(&mode) {
+            lua.app_data_mut::<super::Model>().expect("model")
+                .tbc_dungeon_change_requests.push((mode - 1) as u8);
+        }
+        Ok(())
+    })?)?;
+    g.set("Sound_GameSystem_GetNumOutputDrivers", lua.create_function(|_, ()| Ok(1u32))?)?;
+    g.set("Sound_GameSystem_GetOutputDriverName", lua.create_function(|_, _: Variadic<Value>| Ok("Default Audio Device"))?)?;
+    g.set("GetExistingLocales", lua.create_function(|_, ()| Ok("enUS"))?)?;
+    g.set("SetAutoLootDefault", lua.create_function(|lua, on: Value| {
+        let setter: mlua::Function = lua.globals().get("SetCVar")?;
+        let enabled = !matches!(on, Value::Nil | Value::Boolean(false) | Value::Integer(0));
+        setter.call::<()>( ("autoLootDefault", if enabled {"1"} else {"0"}) )
+    })?)?;
+    Ok(())
+}
+
+/// TBC secure-call entry points. In a VM without taint tracking, first-party
+/// code is initially secure. These calls still use protected Lua calls so an
+/// error in the callee does not abort the caller's FrameXML initialization.
+fn install_secure_calls(lua: &Lua) -> mlua::Result<()> {
+    lua.globals().set(
+        "issecure",
+        lua.create_function(|_, ()| Ok(true))?,
+    )?;
+    lua.globals().set(
+        "securecall",
+        lua.create_function(|lua, args: Variadic<Value>| {
+            let Some(target) = args.first() else {
+                return Ok(mlua::MultiValue::new());
+            };
+            let func = match target {
+                Value::Function(f) => f.clone(),
+                Value::String(name) => match lua.globals().get::<Value>(name.to_str()?.to_string())? {
+                    Value::Function(f) => f,
+                    _ => return Ok(mlua::MultiValue::new()),
+                },
+                _ => return Ok(mlua::MultiValue::new()),
+            };
+            let params = mlua::MultiValue::from_vec(args.iter().skip(1).cloned().collect());
+            match func.call::<mlua::MultiValue>(params) {
+                Ok(values) => Ok(values),
+                Err(e) => {
+                    lua.app_data_mut::<super::Model>()
+                        .expect("model")
+                        .record_script_error(format!("securecall: {e}"));
+                    Ok(mlua::MultiValue::new())
+                }
+            }
+        })?,
+    )?;
     Ok(())
 }
 
@@ -134,7 +509,7 @@ fn install_error_handler(lua: &Lua) -> mlua::Result<()> {
 }
 
 /// The stdlib layer in Lua, run once at construction.
-const WOW_STDLIB: &str = r#"
+const WOW_STDLIB: &str = r##"
 -- ── the bare string family ─────────────────────────────────────────────────────────────────────
 -- Every name here is present in the REAL 1.12 client's global table — the in-world `_G` captured
 -- from the running reference client (19,572 entries), which is the
@@ -156,8 +531,48 @@ strchar = string.char
 gsub    = string.gsub
 tinsert = table.insert
 tremove = table.remove
--- `getn`, `sort`, `foreach` and `foreachi` are bound by `lua50`, which owns the
--- 5.0 shapes of `table.getn`/`setn` and must not be shadowed by a second implementation here.
+-- TBC uses Lua 5.1 and exposes its string and table helpers.
+strmatch = string.match
+strrev = string.reverse
+gmatch = string.gmatch
+getn = table.getn
+sort = table.sort
+foreach = table.foreach
+foreachi = table.foreachi
+
+function strtrim(text)
+    return (string.gsub(text, "^%s*(.-)%s*$", "%1"))
+end
+
+function strsplit(delimiter, text)
+    if not delimiter or delimiter == "" then return text end
+    local parts = {}
+    local start = 1
+    local i = 1
+    while true do
+        local first, last = string.find(text, delimiter, start, true)
+        if not first then
+            parts[i] = string.sub(text, start)
+            break
+        end
+        parts[i] = string.sub(text, start, first - 1)
+        i = i + 1
+        start = last + 1
+    end
+    return unpack(parts, 1, i)
+end
+
+function strjoin(delimiter, ...)
+    local parts = {...}
+    for i = 1, select("#", ...) do
+        parts[i] = tostring(parts[i])
+    end
+    return table.concat(parts, delimiter)
+end
+
+function strconcat(...)
+    return strjoin("", ...)
+end
 
 -- ── the bare math aliases (the same 1.12 global family; the reference FrameXML uses them
 -- unqualified — WorldMapFrame's overlay pool calls ceil/mod, CooldownFrame floor, …). `mod` is
@@ -168,7 +583,7 @@ abs   = math.abs
 max   = math.max
 min   = math.min
 sqrt  = math.sqrt
-mod   = math.mod        -- 5.0's name for fmod; `math.fmod` is removed by `lua50`
+mod   = math.fmod
 random = math.random
 -- `randomseed` is an ENGINE global in 1.12 exactly like `random` beside it (the captured `_G` types
 -- both `function engine`), and it is the half that was missing: `IgniteStatus` calls it at file
@@ -256,9 +671,7 @@ do
     -- `_find`/`_sub` are captured for the same reason `_format` is: this wrapper runs on every
     -- `format` call in the UI and must not follow an addon's later replacement of `string.*`.
     -- They are CALLS and not method syntax because 1.12 installs no string metatable, so
-    -- `fmt:find(...)` raises there, and here too (`lua50::install` removes the metatable). No
-    -- chunk of ours may use what the reference's VM cannot resolve; the parser enforces that
-    -- for the grammar, and this is its runtime twin.
+    -- Keep format processing independent of later replacements of string methods.
     local _format, _find, _sub, _len = string.format, string.find, string.sub, string.len
     local CONV = "diouxXeEfgGqscp"  -- Lua 5.1 conversion letters
 
@@ -327,7 +740,7 @@ do
     string.format = reformat
     format = reformat
 end
-"#;
+"##;
 
 /// `time()` and `date([format [, when]])`: 1.12 engine globals (`0x7035a0`, `0x7033a0`), Lua 5.0's
 /// `os.time`/`os.date` hoisted. `time` is wall-clock epoch seconds, as addons persist it across

@@ -85,7 +85,7 @@ pub(crate) fn item_random_properties_schema() -> Schema {
             FieldType::UInt32,
         ));
     }
-    for i in 0..8 {
+    for i in 0..16 {
         s.add_field(SchemaField::new(format!("Suffix{i}"), FieldType::String));
     }
     s.add_field(SchemaField::new("SuffixFlags", FieldType::UInt32));

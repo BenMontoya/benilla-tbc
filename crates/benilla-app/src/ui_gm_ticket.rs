@@ -121,11 +121,11 @@ fn feed_gm_ticket(
 
 /// `UPDATE_TICKET`'s arguments: category, text, the three day figures, assigned, opened. The wire
 /// has the text first and the reference's handler reorders as it fires, so the decoder keeps wire
-/// order. No ticket is a single `0`: `HelpFrameOpenTicket_OnEvent` tests `arg1 and arg1 ~= 0`
-/// (`HelpFrame.lua:403`), and its else branch resets the form (`:468-475`).
+/// order. Without a ticket the TBC `TicketStatusFrame_OnEvent` needs nil: a Lua
+/// numeric zero is truthy, which enters its ticket-age arithmetic with no ages.
 fn update_ticket_args(ticket: Option<&benilla_protocol::messages::GmTicket>) -> Vec<ScriptValue> {
-    let Some(t) = ticket else {
-        return vec![ScriptValue::Int(0)];
+    let Some(t) = ticket.filter(|t| t.category != 0) else {
+        return Vec::new();
     };
     vec![
         ScriptValue::Int(i64::from(t.category)),

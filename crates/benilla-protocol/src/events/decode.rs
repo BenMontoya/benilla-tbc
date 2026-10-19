@@ -279,15 +279,14 @@ pub fn decode(packet: ServerPacket) -> Vec<SessionEvent> {
             vec![SessionEvent::ClearCooldown { spell_id, caster }]
         }
         ServerPacket::CooldownCheat { caster } => vec![SessionEvent::CooldownCheat { caster }],
-        ServerPacket::ChannelStart {
-            spell_id,
-            duration_ms,
-        } => vec![SessionEvent::ChannelStart {
-            spell_id,
-            duration_ms,
-        }],
-        ServerPacket::ChannelUpdate { remaining_ms } => {
-            vec![SessionEvent::ChannelUpdate { remaining_ms }]
+        ServerPacket::ChannelStart { caster, spell_id, duration_ms } => {
+            vec![SessionEvent::ChannelStart { caster, spell_id, duration_ms }]
+        }
+        ServerPacket::ChannelUpdate { caster, remaining_ms } => {
+            vec![SessionEvent::ChannelUpdate { caster, remaining_ms }]
+        }
+        ServerPacket::TotemCreated { slot, guid, duration_ms, spell_id } => {
+            vec![SessionEvent::TotemCreated { slot, guid, duration_ms, spell_id }]
         }
         ServerPacket::UpdateAuraDuration { slot, remaining_ms } => {
             vec![SessionEvent::AuraDuration { slot, remaining_ms }]
@@ -526,6 +525,12 @@ pub fn decode(packet: ServerPacket) -> Vec<SessionEvent> {
             vec![SessionEvent::GroupLeaderChanged { name }]
         }
         ServerPacket::GroupDestroyed => vec![SessionEvent::GroupDestroyed],
+        ServerPacket::DungeonDifficulty { difficulty, in_group } => {
+            vec![SessionEvent::DungeonDifficulty { difficulty, in_group }]
+        }
+        ServerPacket::InstanceDifficulty { difficulty } => {
+            vec![SessionEvent::InstanceDifficulty { difficulty }]
+        }
         ServerPacket::GroupList {
             group_type,
             own_flags,

@@ -65,7 +65,7 @@ fn schema() -> Schema {
     s.add_field(SchemaField::new_array(
         "NameOtherLocales",
         FieldType::String,
-        7,
+        15,
     ));
     s.add_field(SchemaField::new("NameFlags", FieldType::UInt32));
     s.add_field(SchemaField::new("MountIdHorde", FieldType::UInt32));
@@ -90,8 +90,8 @@ pub fn load_taxi_nodes(chain: &mut Chain) -> Result<TaxiNodes> {
             map_id: u32_at(r, 1).unwrap_or(0),
             pos: [x, y, z],
             name: str_at(&rs, r, 5).unwrap_or_default(),
-            mount_horde: u32_at(r, 14).unwrap_or(0),
-            mount_alliance: u32_at(r, 15).unwrap_or(0),
+            mount_horde: u32_at(r, 22).unwrap_or(0),
+            mount_alliance: u32_at(r, 23).unwrap_or(0),
         };
         rows.insert(id, node);
     }

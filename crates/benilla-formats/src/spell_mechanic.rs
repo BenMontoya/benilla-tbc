@@ -11,7 +11,7 @@ use crate::dbc::{parse, str_at, u32_at};
 use crate::Chain;
 
 const SPELL_MECHANIC: &str = "DBFilesClient\\SpellMechanic.dbc";
-const SPELL_MECHANIC_FIELDS: usize = 10;
+const SPELL_MECHANIC_FIELDS: usize = 18;
 const COL_NAME_ENUS: usize = 1;
 
 /// Mechanic id → name, lower-case in the data ("stunned") and left so, as the reference does.
@@ -37,7 +37,7 @@ impl SpellMechanicCatalog {
 fn schema() -> Schema {
     let mut s = Schema::new("SpellMechanic");
     for i in 0..SPELL_MECHANIC_FIELDS {
-        let ty = if i == COL_NAME_ENUS {
+        let ty = if (1..=16).contains(&i) {
             FieldType::String
         } else {
             FieldType::UInt32

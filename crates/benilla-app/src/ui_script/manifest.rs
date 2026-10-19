@@ -165,6 +165,18 @@ pub(crate) fn load_default_ui(script: &UiScript) -> Vec<String> {
 /// `UI_Init` never reads (`0x48fff2`), going on to `Bindings.xml` and the addons. benilla goes on
 /// the same way and reports it as a load failure, an `ERROR` line and a row in `/errors`.
 pub(super) fn load_core(script: &UiScript) -> Vec<String> {
+    // Stock TBC 2.4.3 UIOptionsFrame.xml references this virtual button base
+    // but does not declare it anywhere in FrameXML.toc. Its 44 inheritors
+    // define their own art, sizing and scripts, so an empty base is sufficient
+    // and lets the standard loader resolve the name instead of warning.
+    if !script.has_framexml_template("InterfaceOptionsToggleButtonTemplate") {
+        let src = r#"<Ui xmlns="http://www.blizzard.com/wow/ui/">
+            <Button name="InterfaceOptionsToggleButtonTemplate" virtual="true"/>
+        </Ui>"#;
+        if let Ok(doc) = benilla_ui::framexml::parse(src) {
+            benilla_ui::loader::load(script, &doc, &|_| None);
+        }
+    }
     let Some(core) = reference_ui::core() else {
         let e = format!(
             "{}: not found — the stock interface is not built",
@@ -234,10 +246,20 @@ pub(crate) fn default_bindings() -> Vec<benilla_ui::script::keybind::KeyBinding>
         }
         None => {
             warn!(
-                "ui_script: {} is not in the patch chain — every command ships unbound",
+                "ui_script: {} is not in the patch chain — installing essential map/chat bindings",
                 reference_ui::DEFAULT_BINDINGS
             );
-            Vec::new()
+            // Some TBC client distributions do not include the standalone defaults file.
+            // A blank key table makes the map impossible to reopen and disables all chat input.
+            // Keep these as *defaults*: account and character binding overrides still win.
+            [
+                ("M", "TOGGLEWORLDMAP"),
+                ("ENTER", "OPENCHAT"),
+                ("/", "OPENCHATSLASH"),
+            ]
+            .into_iter()
+            .map(|(key, command)| (key.to_owned(), command.to_owned()))
+            .collect()
         }
     }
 }

@@ -1,6 +1,5 @@
 //! The Lua scripting host: the engine-free VM that runs FrameXML and addons over the frame arena,
-//! the anchor resolver and the draw order. It embeds mlua's Lua 5.1, reshaped by [`lua50`] to
-//! answer as the 1.12 client's Lua 5.0.
+//! the anchor resolver and the draw order. It embeds Lua 5.1 for The Burning Crusade.
 //!
 //! A frame's Lua value is a table whose `T[0]` lightuserdata (`0x701bd0`) holds a `u32` id where
 //! the reference holds the `CScriptObject*`, with an `__index` metatable (`0x7020b0`). A handler
@@ -82,8 +81,10 @@ mod keyboard;
 mod layout;
 mod layout_cache;
 mod loot;
-mod loot_roll;
+mod bitwise;
+#[cfg(test)]
 mod lua50;
+mod loot_roll;
 mod macros;
 mod mail;
 mod measure;
@@ -121,6 +122,7 @@ mod spellbook;
 mod stable;
 mod statusbar;
 mod stdlib;
+pub use stdlib::{TimedSpellView, TotemView};
 mod summon;
 mod talent;
 mod taxi;
@@ -337,7 +339,7 @@ pub(crate) const TEXTURE_ONLY_METHODS: [&str; 12] = [
 
 /// FontString-only: the font, text, justify and shadow block and the string metrics.
 /// `GetStringHeight`, `SetFormattedText` and `SetSize` are not 1.12 FontString methods.
-pub(crate) const FONTSTRING_ONLY_METHODS: [&str; 21] = [
+pub(crate) const FONTSTRING_ONLY_METHODS: [&str; 22] = [
     "SetFont",
     "GetFont",
     "SetFontObject",
@@ -353,6 +355,7 @@ pub(crate) const FONTSTRING_ONLY_METHODS: [&str; 21] = [
     "SetJustifyV",
     "GetJustifyV",
     "SetText",
+    "SetFormattedText",
     "GetText",
     "SetTextHeight",
     "GetStringWidth",
@@ -399,7 +402,7 @@ pub const SCREEN: crate::layout::Handle = 0;
 /// ScrollFrame's three scroll kinds are `+0x32c`/`+0x334`/`+0x33c` (script-name map `0x786c40`).
 /// The EditBox's vtable (`0x81c910`) replaces the key and char slots: an EditBox never fires
 /// `OnKeyDown`, and fires `OnChar` only from `Insert`, with the inserted text (`0x77c13c`).
-const SCRIPT_KINDS: [&str; 39] = [
+const SCRIPT_KINDS: [&str; 47] = [
     "OnLoad",
     "OnEvent",
     "OnUpdate",
@@ -409,7 +412,9 @@ const SCRIPT_KINDS: [&str; 39] = [
     "OnAnimFinished",
     "OnShow",
     "OnHide",
+    "PreClick",
     "OnClick",
+    "PostClick",
     "OnEnter",
     "OnLeave",
     "OnMouseDown",
@@ -422,6 +427,8 @@ const SCRIPT_KINDS: [&str; 39] = [
     "OnTabPressed",
     "OnTextChanged",
     "OnTextSet",
+    "OnInputLanguageChanged",
+    "OnCharComposition",
     // The caret leg's own (`0x77da80`), fired by the box's flush on dirty bit 2, which a caret
     // move, an edit, a focus change and a re-seat raise: the edge `ScrollingEdit_OnCursorChanged`
     // scrolls a multiline box by.
@@ -442,6 +449,9 @@ const SCRIPT_KINDS: [&str; 39] = [
     "OnTooltipAddMoney",
     "OnTooltipCleared",
     "OnTooltipSetDefaultAnchor",
+    "OnTooltipSetUnit",
+    "OnTooltipSetItem",
+    "OnTooltipSetSpell",
     // The ColorSelect's own slot (script map `0x78b4f0`, `+0x338`), fired by its `SetColorRGB`.
     "OnColorSelect",
     // The Button/CheckButton double click (script map `0x778c50`, `+0x4d4`), fired by
@@ -449,6 +459,8 @@ const SCRIPT_KINDS: [&str; 39] = [
     "OnDoubleClick",
     // The layout event (base map `0x76a0d0`, `+0x120`), fired by the resolve pass on a size change.
     "OnSizeChanged",
+    // TBC FrameXML's attribute notifications, used by UIParent's panel manager.
+    "OnAttributeChanged",
     // The key channels, fired by [`keyboard`]'s walk (`0x765f10`). `OnKeyUp` never fires, as the
     // host feeds no key-up, but a frame carrying only `OnKeyUp` still consumes every key-down and
     // runs nothing, the reference's own asymmetry.
@@ -503,8 +515,8 @@ impl UiScript {
         client::install(&lua)?;
         screenshot::install(&lua)?;
         stdlib::sandbox(&lua)?;
-        // Before the stdlib layer, so its aliases bind the 5.0-shaped functions.
-        lua50::install(&lua)?;
+        // WoW's bitwise API is separate from the Vanilla Lua 5.0 compatibility layer.
+        bitwise::install_bit(&lua)?;
         stdlib::install(&lua)?;
         object::install(&lua)?;
         frame_enum::install(&lua)?;

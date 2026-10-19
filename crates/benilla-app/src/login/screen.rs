@@ -223,10 +223,10 @@ fn spawn_screen(
             let mut out = template.to_string();
             for piece in [
                 "Version",
-                "1.12.1",
+                "2.4.3",
                 build.as_str(),
                 "Release",
-                "Sep 19 2006",
+                "Jul 10 2008",
             ] {
                 out = out.replacen("%s", piece, 1);
             }

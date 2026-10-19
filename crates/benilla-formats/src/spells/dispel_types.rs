@@ -40,18 +40,19 @@ pub fn load_spell_dispel_types(chain: &mut Chain) -> Result<SpellDispelTypes> {
         .context("reading SpellDispelType.dbc")?;
     let mut schema = Schema::new("SpellDispelType");
     schema.add_field(SchemaField::new("ID", FieldType::UInt32));
-    for i in 0..8 {
+    for i in 0..16 {
         schema.add_field(SchemaField::new(format!("Name{i}"), FieldType::String));
     }
     schema.add_field(SchemaField::new("NameFlags", FieldType::UInt32));
+    schema.add_field(SchemaField::new("Unknown18", FieldType::UInt32));
     schema.add_field(SchemaField::new("Named", FieldType::UInt32));
-    schema.add_field(SchemaField::new("Unknown11", FieldType::String));
+    schema.add_field(SchemaField::new("SecondaryName", FieldType::String));
     let set = parse(&bytes, schema, "SpellDispelType.dbc")?;
     let mut names = HashMap::new();
     for r in set.records() {
         let Some(id) = u32_at(r, 0) else { continue };
         // The gate first: a 0 here withholds the name however good the string is (Stealth, id 5).
-        if u32_at(r, 10).unwrap_or(0) == 0 {
+        if u32_at(r, 19).unwrap_or(0) == 0 {
             continue;
         }
         if let Some(name) = str_at(&set, r, 1).filter(|n| !n.is_empty()) {

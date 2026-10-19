@@ -22,7 +22,7 @@ const FORMS: usize = 16;
 
 /// Locale columns per `EmotesTextData.dbc` row: id, 8 strings and flags make the 10 fields the
 /// loader checks (`0x544579`); the client reads the slot named in `[0xc0e080]`.
-const LOCALES: usize = 8;
+const LOCALES: usize = 16;
 
 /// The joined text-emote sentence tables.
 #[derive(Debug, Default, Clone)]

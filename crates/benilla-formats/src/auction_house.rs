@@ -61,7 +61,7 @@ fn auction_house_schema() -> Schema {
     s.add_field(SchemaField::new("FactionID", FieldType::UInt32));
     s.add_field(SchemaField::new("DepositPercent", FieldType::UInt32));
     s.add_field(SchemaField::new("CutPercent", FieldType::UInt32));
-    for i in 0..8 {
+    for i in 0..16 {
         s.add_field(SchemaField::new(format!("Name{i}"), FieldType::String));
     }
     s.add_field(SchemaField::new("NameFlags", FieldType::UInt32));

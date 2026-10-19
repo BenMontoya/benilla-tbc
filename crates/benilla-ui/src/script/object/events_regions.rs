@@ -7,6 +7,8 @@ use mlua::{Function, Lua, MultiValue, Table, Value};
 use crate::script::binding_abi::optional_string;
 use crate::script::region::region_wrapper;
 use crate::script::{Model, RegionData, REG_SCRIPTS, SCRIPT_KINDS};
+
+pub(super) const REG_FRAME_ATTRIBUTES: &str = "__benilla_frame_attributes";
 use crate::widget::RegionKind;
 
 use super::{decode_id, draw_layer_from_str, frame_handle_of, publish_global};
@@ -27,6 +29,17 @@ pub(super) fn install(lua: &Lua, m: &Table) -> mlua::Result<()> {
             }
             model.frame_events.entry(h).or_default().insert(event);
             Ok(())
+        })?,
+    )?;
+    m.set(
+        "IsEventRegistered",
+        lua.create_function(|lua, (this, event): (Table, String)| {
+            let h = frame_handle_of(lua, &this)?;
+            let model = lua.app_data_ref::<Model>().expect("model");
+            Ok(crate::script::binding_abi::flag(
+                model.all_event_frames.contains(&h)
+                    || model.frame_events.get(&h).is_some_and(|events| events.contains(&event)),
+            ))
         })?,
     )?;
     m.set(
@@ -84,6 +97,46 @@ pub(super) fn install(lua: &Lua, m: &Table) -> mlua::Result<()> {
     m.set(
         "GetScript",
         lua.create_function(|lua, (this, name): (Table, String)| get_script(lua, &this, &name))?,
+    )?;
+    // TBC stores frame attributes per instance and notifies the OnAttributeChanged
+    // handler synchronously. UIParent's panel manager uses this as its dispatch path.
+    m.set(
+        "GetAttribute",
+        lua.create_function(|lua, (this, name): (Table, String)| {
+            let id = decode_id(&this)?;
+            let registry: Table = lua.named_registry_value(REG_FRAME_ATTRIBUTES)?;
+            match registry.raw_get::<Value>(id)? {
+                Value::Table(attributes) => attributes.raw_get::<Value>(name),
+                _ => Ok(Value::Nil),
+            }
+        })?,
+    )?;
+    m.set(
+        "SetAttribute",
+        lua.create_function(|lua, (this, name, value): (Table, String, Value)| {
+            let _ = frame_handle_of(lua, &this)?;
+            let id = decode_id(&this)?;
+            let registry: Table = lua.named_registry_value(REG_FRAME_ATTRIBUTES)?;
+            let attributes = match registry.raw_get::<Value>(id)? {
+                Value::Table(attributes) => attributes,
+                _ => {
+                    let attributes = lua.create_table()?;
+                    registry.raw_set(id, attributes.clone())?;
+                    attributes
+                }
+            };
+            // SetAttribute is an event-producing operation, even if the new value
+            // equals the old one. TBC UIParent deliberately writes panel-show=true
+            // and panel-hide=true on every request; suppressing equal writes makes
+            // every panel stop opening/closing after its first transition.
+            attributes.raw_set(name.as_str(), value.clone())?;
+            crate::script::event::fire_widget_handler(
+                lua,
+                id,
+                "OnAttributeChanged",
+                vec![Value::String(lua.create_string(name)?), value],
+            )
+        })?,
     )?;
     // `HasScript(name)`: 1 if the widget can carry that script kind, else nil, whether or not one
     // is set. Answered from the flat `SCRIPT_KINDS`, so another type's kind reads 1 too, where the
@@ -213,7 +266,7 @@ pub(super) fn install(lua: &Lua, m: &Table) -> mlua::Result<()> {
 /// `SetScript(name, func)`: stores the closure under one of [`SCRIPT_KINDS`], else raises.
 /// Deviation: real 1.12 kinds nothing fires yet raise too (`OnHyperlinkEnter`, `OnHyperlinkLeave`,
 /// `OnMessageScrollChanged`, `OnInputLanguageChanged`, the movie frame's), because an accepted
-/// handler that never runs fails silently. `OnAttributeChanged` is 2.0's, with no 1.12 slot.
+/// handler that never runs fails silently.
 fn set_script(lua: &Lua, this: &Table, name: &str, func: Option<Function>) -> mlua::Result<()> {
     let kind = SCRIPT_KINDS
         .iter()

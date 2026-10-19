@@ -352,9 +352,10 @@ fn spell_visual_wire_golden() {
         "0101",       // item_or_caster pguid: mask 1, guid 1
         "c92a4530f1", // caster pguid: the creature guid, mask 0xC9
         "85000000",   // spellId 133
+        "00",         // TBC u8 cast_count
         "0200",       // castFlags 0x2 (CAST_FLAG_UNKNOWN2)
         "b80b0000",   // remaining cast time: 3000ms
-        "0200",       // SpellCastTargets mask: TARGET_FLAG_UNIT (0x2)
+        "02000000",       // SpellCastTargets mask: TARGET_FLAG_UNIT (0x2)
         "0155",       // unit target pguid: mask 1, guid 0x55
     ));
     let packet = messages::parse_server(messages::opcode::SMSG_SPELL_START, &body).unwrap();
@@ -406,9 +407,10 @@ fn spell_visual_wire_golden() {
         "0109",     // item_or_caster pguid: mask 1, guid 9 (no cast item: the caster itself)
         "0109",     // caster pguid: same object, guid 9
         "11000000", // spellId 17
+        "00",         // TBC u8 cast_count
         "0200",     // castFlags 0x2
         "00000000", // remaining cast time: 0 (instant)
-        "0000",     // SpellCastTargets mask: 0 (SELF), nothing follows
+        "00000000",     // SpellCastTargets mask: 0 (SELF), nothing follows
     ));
     let packet = messages::parse_server(messages::opcode::SMSG_SPELL_START, &body).unwrap();
     match decode(packet).pop().unwrap() {
@@ -428,6 +430,7 @@ fn spell_visual_wire_golden() {
         "c92a4530f1",       // caster pguid: the creature
         "4b000000",         // spellId 75 (Auto Shot)
         "2001",             // castFlags 0x120 (CAST_FLAG_UNKNOWN9 0x100 | CAST_FLAG_AMMO 0x20)
+        "00000000", // TBC u32 server timestamp
         "02",               // hit count 2
         "aa00000000000000", // hit guid 0xAA, raw (unpacked)
         "bb00000000000000", // hit guid 0xBB, raw
@@ -437,7 +440,7 @@ fn spell_visual_wire_golden() {
         "dd00000000000000",
         "0b",
         "02",       // miss guid 0xDD, SPELL_MISS_REFLECT (11) + reflectResult 2
-        "0200",     // SpellCastTargets mask: TARGET_FLAG_UNIT
+        "02000000",     // SpellCastTargets mask: TARGET_FLAG_UNIT
         "01ee",     // unit target pguid: guid 0xEE
         "6c170000", // ammo displayId 5996
         "12000000", // ammo inventoryType 18 (dropped)
@@ -500,9 +503,10 @@ fn spell_visual_wire_golden() {
         "011a",     // caster pguid
         "0a000000", // spellId 10 (Blizzard)
         "0001",     // castFlags 0x100 (CAST_FLAG_UNKNOWN9)
+        "00000000", // TBC u32 server timestamp
         "00",       // hit count 0
         "00",       // miss count 0
-        "4000",     // SpellCastTargets mask: TARGET_FLAG_DEST_LOCATION
+        "40000000",     // SpellCastTargets mask: TARGET_FLAG_DEST_LOCATION
         "8f300ac6", // dest x −8844.14 (0xc60a308f)
         "1f352744", // dest y 668.83 (0x4427351f)
         "b89ec342", // dest z 97.81 (0x42c39eb8)
@@ -543,10 +547,11 @@ fn spell_visual_wire_golden() {
         "00",               // caster pguid: empty, vmangos writes a null `m_casterUnit`
         "591b0000",         // spellId 7001 (Lightwell Renew)
         "0001",             // castFlags 0x100 (CAST_FLAG_UNKNOWN9)
+        "00000000", // TBC u32 server timestamp
         "01",               // hit count 1
         "4500000000000000", // hit: the clicking player (raw u64)
         "00",               // miss count 0
-        "0200",             // SpellCastTargets mask: TARGET_FLAG_UNIT
+        "02000000",             // SpellCastTargets mask: TARGET_FLAG_UNIT
         "0145",             // …the same player, packed
     ));
     let packet = messages::parse_server(messages::opcode::SMSG_SPELL_GO, &body).unwrap();
@@ -632,34 +637,32 @@ fn spell_visual_wire_golden() {
         other => panic!("play spell visual event, got {other:?}"),
     }
 
-    // MSG_CHANNEL_START: u32 spellId + u32 duration, no guid since only the caster gets it
-    // (vmangos `Spell.cpp:4963-4966`). 10797 is Starshards.
-    let body = hx(concat!("2d2a0000", "70170000"));
+    // TBC MSG_CHANNEL_START: packed caster GUID, spellId, duration.
+    // Caster 27, spell 10797 (Starshards), 6000 ms.
+    let body = hx(concat!("011b", "2d2a0000", "70170000"));
     let packet = messages::parse_server(messages::opcode::MSG_CHANNEL_START, &body).unwrap();
     match &packet {
-        ServerPacket::ChannelStart {
-            spell_id,
-            duration_ms,
-        } => assert_eq!((*spell_id, *duration_ms), (10797, 6000)),
+        ServerPacket::ChannelStart { caster, spell_id, duration_ms } =>
+            assert_eq!((*caster, *spell_id, *duration_ms), (27, 10797, 6000)),
         other => panic!("channel start, got {}", other.name()),
     }
     match decode(packet).pop().unwrap() {
-        SessionEvent::ChannelStart {
-            spell_id,
-            duration_ms,
-        } => assert_eq!((spell_id, duration_ms), (10797, 6000)),
+        SessionEvent::ChannelStart { caster, spell_id, duration_ms } =>
+            assert_eq!((caster, spell_id, duration_ms), (27, 10797, 6000)),
         other => panic!("channel start event, got {other:?}"),
     }
 
-    // MSG_CHANNEL_UPDATE: u32 ms left, 0 = over (vmangos `Player.cpp:21141-21146`).
-    let body = hx("b80b0000");
+    // TBC MSG_CHANNEL_UPDATE: packed caster GUID and remaining time.
+    let body = hx(concat!("011b", "b80b0000"));
     let packet = messages::parse_server(messages::opcode::MSG_CHANNEL_UPDATE, &body).unwrap();
     match &packet {
-        ServerPacket::ChannelUpdate { remaining_ms } => assert_eq!(*remaining_ms, 3000),
+        ServerPacket::ChannelUpdate { caster, remaining_ms } =>
+            assert_eq!((*caster, *remaining_ms), (27, 3000)),
         other => panic!("channel update, got {}", other.name()),
     }
     match decode(packet).pop().unwrap() {
-        SessionEvent::ChannelUpdate { remaining_ms } => assert_eq!(remaining_ms, 3000),
+        SessionEvent::ChannelUpdate { caster, remaining_ms } =>
+            assert_eq!((caster, remaining_ms), (27, 3000)),
         other => panic!("channel update event, got {other:?}"),
     }
 
@@ -675,6 +678,7 @@ fn spell_visual_wire_golden() {
         "c92a4530f1",
         "4b000000",
         "2001",
+        "00000000", // TBC server timestamp
         "02",
         "aa00000000000000", // hit count says 2, only 1 hit guid present
     ));
@@ -689,9 +693,10 @@ fn spell_go_surfaces_the_gameobject_target() {
         "0107",     // caster pguid: guid 7
         "250d0000", // spellId 3365 ("Opening")
         "0001",     // castFlags 0x100 (CAST_FLAG_UNKNOWN9, no ammo)
+        "00000000", // TBC u32 server timestamp
         "00",       // hit count 0
         "00",       // miss count 0
-        "0008",     // SpellCastTargets mask: TARGET_FLAG_GAMEOBJECT (0x0800)
+        "00080000",     // SpellCastTargets mask: TARGET_FLAG_GAMEOBJECT (0x0800)
         "033412",   // GO target pguid: guid 0x1234
     ));
     let packet = messages::parse_server(messages::opcode::SMSG_SPELL_GO, &body).unwrap();

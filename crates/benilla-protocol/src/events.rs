@@ -620,10 +620,12 @@ pub enum SessionEvent {
     ClearCooldown { spell_id: u32, caster: u64 },
     /// Wipe every cooldown for `caster` (`SMSG_COOLDOWN_CHEAT`, the GM reset).
     CooldownCheat { caster: u64 },
-    /// Our own channel opened (`MSG_CHANNEL_START`, self-only, no guid on the wire).
-    ChannelStart { spell_id: u32, duration_ms: u32 },
-    /// A channel's time left (`MSG_CHANNEL_UPDATE`, self-only); 0 is over, natural or interrupted.
-    ChannelUpdate { remaining_ms: u32 },
+    /// A unit began channeling (`MSG_CHANNEL_START`).
+    ChannelStart { caster: u64, spell_id: u32, duration_ms: u32 },
+    /// A unit's channel time changed; zero ends the channel.
+    ChannelUpdate { caster: u64, remaining_ms: u32 },
+    /// Our player created a totem in one of the four elemental slots.
+    TotemCreated { slot: u8, guid: u64, duration_ms: u32, spell_id: u32 },
     /// Time left on one of our auras by `UNIT_FIELD_AURA` slot (`SMSG_UPDATE_AURA_DURATION`),
     /// never for a permanent one. It arrives before the delta naming the slot's spell.
     AuraDuration { slot: u8, remaining_ms: u32 },
@@ -893,6 +895,10 @@ pub enum SessionEvent {
     /// The group disbanded outright (`SMSG_GROUP_DESTROYED`, empty body).
     GroupDestroyed,
     /// The full roster (`SMSG_GROUP_LIST`), without our own row; `loot` is `None` when alone.
+    /// Selected 5-player dungeon difficulty (0 normal, 1 heroic) and group context.
+    DungeonDifficulty { difficulty: u32, in_group: bool },
+    /// Effective mode of the current instance, independent of preference.
+    InstanceDifficulty { difficulty: u32 },
     GroupList {
         group_type: u8,
         own_flags: u8,

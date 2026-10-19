@@ -121,6 +121,17 @@ pub(in crate::script) fn install(lua: &Lua) -> mlua::Result<()> {
             },
         )?,
     )?;
+    m.set(
+        "GetOwner",
+        lua.create_function(|lua, this: Table| {
+            let owner = with_tip(lua, &this, |t| t.owner)?;
+            let Some(owner) = owner else {
+                return Ok(None::<Table>);
+            };
+            let id = lua.app_data_mut::<Model>().expect("model app_data").frame_id(owner);
+            Ok(Some(crate::script::object::frame_wrapper(lua, id)?))
+        })?,
+    )?;
     // GetAnchorType(): the last SetOwner's mode by name (`0x5313e0`, name table `0x531530`), never
     // nil; a never-owned tooltip answers "ANCHOR_NONE". The reference also answers it after any
     // hide, whose un-own leaves mode 7; this keeps the last mode. Addons compare it with what they

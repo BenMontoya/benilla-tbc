@@ -1,8 +1,5 @@
-//! Handler firing: the FrameScript calling convention for events, ticks and show/hide. The
-//! reference sets `this` (`0x872e64`), `event` (`0x84b648`) and `arg1..argN` (`0x8722dc`) around
-//! the call, restoring each after, and `pcall`s with no arguments; the handler here also gets the
-//! same values as `(self, event, ...)` arguments, which 1.12 does not pass.
-//! Handler errors return to the caller, which records them in [`super::Model::errors`].
+//! TBC FrameXML handlers receive positional arguments. For older addons, the dispatcher also
+//! maintains the `this`, `event` and `argN` globals around each call.
 
 use std::borrow::Cow;
 
@@ -229,9 +226,8 @@ fn arg_name(i: usize) -> Cow<'static, str> {
     }
 }
 
-/// The calling convention, shared by [`fire`] and the loader's `OnLoad`: sets `this`, `event` and
-/// `arg1..argN` and calls the handler with no arguments, as `0x705199` calls `lua_pcall` with
-/// zero; the globals are restored after the call, even on error, so nested fires are safe.
+/// The TBC handler calling convention, shared by runtime dispatch and XML OnLoad.
+/// Legacy globals are restored after the call, including when a script raises.
 pub(crate) fn invoke_with_globals(
     lua: &Lua,
     wrapper: Table,
@@ -257,8 +253,14 @@ pub(crate) fn invoke_with_globals(
         g.set(arg_name(i + 1).as_ref(), v.clone())?;
     }
 
+    let mut positional = Vec::with_capacity(extra.len() + 2);
+    positional.push(Value::Table(wrapper));
+    if let Some(name) = event_name {
+        positional.push(Value::String(lua.create_string(name)?));
+    }
+    positional.extend(extra);
     // A protected call; the globals are restored before its outcome returns.
-    let outcome = func.call::<()>(());
+    let outcome = func.call::<()>(mlua::MultiValue::from_vec(positional));
 
     g.set("this", saved_this)?;
     g.set("event", saved_event)?;

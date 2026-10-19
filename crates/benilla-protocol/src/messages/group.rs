@@ -76,6 +76,8 @@ pub struct GroupLootInfo {
     /// The master looter, 0 unless `method` is 2.
     pub master: u64,
     pub threshold: u8,
+    /// TBC dungeon difficulty: 0 normal or 1 heroic; carried in every nonempty group list.
+    pub difficulty: u8,
 }
 
 /// Read `SMSG_GROUP_LIST` (`Group.cpp:155-180`): type (0 party, 1 raid), own flags, members,
@@ -102,11 +104,12 @@ pub(super) fn read_group_list(
         let method = read_u8(r)?;
         let master = read_u64_le(r)?;
         let threshold = read_u8(r)?;
-        let _dungeon_difficulty = read_u8(r)?; // always 0 at 5875 (Group.h:281)
+        let difficulty = read_u8(r)?;
         Some(GroupLootInfo {
             method,
             master,
             threshold,
+            difficulty,
         })
     } else {
         None

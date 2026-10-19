@@ -2,7 +2,7 @@
 //! The first check that fires decides, in the reference's order: missing, the visiting guard (a
 //! cycle is loadable), enabled, banned, corrupt, version, dependencies, demand.
 //!
-//! The version gate is an exact `==` against a hard-coded 11200 (`0x51d7d0`), so 11201 is out of
+//! The version gate is an exact `==` against a hard-coded 20400 (`0x51d7d0`), so 11201 is out of
 //! date and a missing `## Interface` compares as 0. With `checkAddonVersion` off the reason is
 //! reset to none, so force-load falls through to the dependency and demand checks.
 //!
@@ -11,7 +11,7 @@
 //! `SMSG_ADDON_INFO` signature state, which is not modelled; they are never produced.
 
 /// The `## Interface` this client implements, the reference's hard-coded `0x2bc0`.
-pub const CLIENT_INTERFACE: u32 = 11200;
+pub const CLIENT_INTERFACE: u32 = 20400;
 
 /// One addon as the gate reads it; every addon registry lowers into this.
 pub struct GateRow<'a> {

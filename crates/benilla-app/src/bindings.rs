@@ -422,6 +422,29 @@ fn latch_and_dispatch(
                 if !repeat {
                     state.down.push(key);
                 }
+                // Opt-in diagnosis for keys that open the stock TBC interface. This
+                // also exposes a phantom focused edit box swallowing every binding.
+                let ui_trace = std::env::var("BENILLA_UI_TRACE").as_deref() == Ok("1")
+                    && matches!(
+                        key,
+                        KeyCode::Enter
+                            | KeyCode::Escape
+                            | KeyCode::Slash
+                            | KeyCode::KeyM
+                            | KeyCode::KeyC
+                            | KeyCode::KeyP
+                            | KeyCode::KeyL
+                    );
+                if ui_trace {
+                    info!(
+                        "ui key {:?}: typing={} eaten={} repeat={} focus={:?}",
+                        key,
+                        typing,
+                        eaten,
+                        repeat,
+                        script.as_ref().and_then(|s| s.focused_editbox_name()),
+                    );
+                }
                 // `sup`: the Super deviation (module doc).
                 if (typing && !arrow_exempt) || eaten || sup || repeat {
                     continue;
@@ -440,7 +463,11 @@ fn latch_and_dispatch(
                     shift,
                     key: BindKey::Key(name),
                 };
-                if let Some(command) = dispatch.resolve(chord, dev_plane) {
+                let resolved = dispatch.resolve(chord, dev_plane);
+                if ui_trace {
+                    info!("ui key {:?}: resolved binding={resolved:?}", key);
+                }
+                if let Some(command) = resolved {
                     press(&mut state, &mut script, command, Held::Key(key));
                 }
             }
@@ -558,7 +585,18 @@ fn press(
     key: Held,
 ) {
     if let Some(s) = script.as_mut() {
-        if let Err(e) = s.execute_binding(command, true) {
+        let result = s.execute_binding(command, true);
+        if std::env::var("BENILLA_UI_TRACE").as_deref() == Ok("1")
+            && matches!(command, "OPENCHAT" | "OPENCHATSLASH")
+        {
+            info!(
+                "ui chat binding {command}: result={:?} visible={} focus={:?}",
+                result.as_ref().map(|v| *v),
+                s.frame_visible("ChatFrameEditBox"),
+                s.focused_editbox_name(),
+            );
+        }
+        if let Err(e) = result {
             warn!("bindings({command}): {e}");
         }
     }

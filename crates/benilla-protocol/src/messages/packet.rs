@@ -613,14 +613,23 @@ pub enum ServerPacket {
     CooldownCheat {
         caster: u64,
     },
-    /// `MSG_CHANNEL_START`: our own channel opened (self-only, no guid on the wire).
+    /// `MSG_CHANNEL_START`: packed caster GUID, spell, duration.
     ChannelStart {
+        caster: u64,
         spell_id: u32,
         duration_ms: u32,
     },
-    /// `MSG_CHANNEL_UPDATE` (self-only): our channel's time left; `0` ends it, end or interrupt.
+    /// `MSG_CHANNEL_UPDATE`: packed caster GUID, remaining channel time.
     ChannelUpdate {
+        caster: u64,
         remaining_ms: u32,
+    },
+    /// `SMSG_TOTEM_CREATED`: one of the player's four totem slots.
+    TotemCreated {
+        slot: u8,
+        guid: u64,
+        duration_ms: u32,
+        spell_id: u32,
     },
     /// `SMSG_UPDATE_AURA_DURATION` (self-only, never for a permanent aura): one aura slot's time
     /// left. It arrives before the delta naming the slot's spell, so buffer it by slot.
@@ -938,6 +947,10 @@ pub enum ServerPacket {
     GroupDestroyed,
     /// `SMSG_GROUP_LIST`: the full roster on every change, without our own row (see `own_flags`);
     /// `loot` is absent when there are no other members.
+    /// TBC MSG_SET_DUNGEON_DIFFICULTY (server -> client): selected difficulty, 0 normal, 1 heroic.
+    DungeonDifficulty { difficulty: u32, in_group: bool },
+    /// TBC SMSG_INSTANCE_DIFFICULTY: the map's effective mode (not the chosen default).
+    InstanceDifficulty { difficulty: u32 },
     GroupList {
         group_type: u8,
         own_flags: u8,
@@ -1411,6 +1424,7 @@ impl ServerPacket {
             ServerPacket::CooldownCheat { .. } => "SMSG_COOLDOWN_CHEAT".into(),
             ServerPacket::ChannelStart { .. } => "MSG_CHANNEL_START".into(),
             ServerPacket::ChannelUpdate { .. } => "MSG_CHANNEL_UPDATE".into(),
+            ServerPacket::TotemCreated { .. } => "SMSG_TOTEM_CREATED".into(),
             ServerPacket::UpdateAuraDuration { .. } => "SMSG_UPDATE_AURA_DURATION".into(),
             ServerPacket::PlaySpellVisual { .. } => "SMSG_PLAY_SPELL_VISUAL".into(),
             ServerPacket::SpellDamageLog(_) => "SMSG_SPELLNONMELEEDAMAGELOG".into(),
@@ -1519,6 +1533,8 @@ impl ServerPacket {
             ServerPacket::GroupUninvited => "SMSG_GROUP_UNINVITE".into(),
             ServerPacket::GroupLeaderChanged { .. } => "SMSG_GROUP_SET_LEADER".into(),
             ServerPacket::GroupDestroyed => "SMSG_GROUP_DESTROYED".into(),
+            ServerPacket::DungeonDifficulty { .. } => "MSG_SET_DUNGEON_DIFFICULTY".into(),
+            ServerPacket::InstanceDifficulty { .. } => "SMSG_INSTANCE_DIFFICULTY".into(),
             ServerPacket::GroupList { .. } => "SMSG_GROUP_LIST".into(),
             ServerPacket::PartyCommandResult { .. } => "SMSG_PARTY_COMMAND_RESULT".into(),
             ServerPacket::PartyMemberStats { full: true, .. } => {

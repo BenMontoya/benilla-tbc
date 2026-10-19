@@ -44,11 +44,14 @@ pub(super) fn read_gameobject_query_response(
     for _ in 0..3 {
         let _ = read_cstring(r)?; // name2..name4, always empty in 5875
     }
-    let _icon = read_cstring(r)?; // name5, the icon key
+    let _icon = read_cstring(r)?;
+    let _opening_text = read_cstring(r)?; // TBC 2.0.3
+    let _closing_text = read_cstring(r)?; // TBC 2.0.3
     let mut data = [0i32; 24];
     for slot in &mut data {
         *slot = read_i32_le(r)?;
     }
+    let _size = crate::wire::read_f32_le(r)?;
     Ok((
         entry,
         Some(GameObjectQueryInfo {

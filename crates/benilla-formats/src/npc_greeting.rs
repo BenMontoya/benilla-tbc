@@ -59,7 +59,7 @@ fn npcsounds_schema() -> Schema {
 
 fn cdi_schema() -> Schema {
     let mut s = Schema::new("CreatureDisplayInfo");
-    for i in 0..12 {
+    for i in 0..14 {
         s.add_field(SchemaField::new(format!("f{i}"), FieldType::UInt32));
     }
     s
@@ -90,7 +90,7 @@ pub fn load_npc_greeting_catalog(chain: &mut Chain) -> Result<NpcGreetingCatalog
     let rs = parse(&bytes, cdi_schema(), "CreatureDisplayInfo")?;
     let mut display_to_sound = HashMap::new();
     for r in rs.records() {
-        let (Some(id), Some(npc_sound)) = (u32_at(r, 0), u32_at(r, 11)) else {
+        let (Some(id), Some(npc_sound)) = (u32_at(r, 0), u32_at(r, 12)) else {
             continue;
         };
         if npc_sound != 0 {

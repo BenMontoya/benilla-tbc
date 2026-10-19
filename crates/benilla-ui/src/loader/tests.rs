@@ -789,9 +789,9 @@ mod loader_tests {
         assert!(s.eval::<bool>("return FineRan == true").unwrap());
     }
 
-    /// `OnAttributeChanged` is 2.0's; no 1.12 handler resolver has a slot for it.
+    /// TBC FrameXML accepts OnAttributeChanged handlers.
     #[test]
-    fn unsupported_script_name_is_a_warning() {
+    fn attribute_changed_script_is_supported() {
         let s = UiScript::new().unwrap();
         let doc = parse(
             r#"<Ui><Frame name="Keyed"><Scripts><OnAttributeChanged>x = 1</OnAttributeChanged></Scripts></Frame></Ui>"#,
@@ -799,10 +799,11 @@ mod loader_tests {
         let report = load(&s, &doc, &no_files);
         assert_eq!(report.frames, 1);
         assert!(report.errors.is_empty(), "{:?}", report.errors);
-        assert!(report
-            .warnings
-            .iter()
-            .any(|w| w.contains("OnAttributeChanged")));
+        assert!(
+            !report.warnings.iter().any(|w| w.contains("OnAttributeChanged")),
+            "{:?}",
+            report.warnings
+        );
     }
 
     /// `Instantiate 0x6ee280` logs `"Unknown frame type: %s"` (`0x871124`) and builds nothing for

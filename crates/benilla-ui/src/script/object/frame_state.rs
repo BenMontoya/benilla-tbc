@@ -12,6 +12,29 @@ use super::{decode_id, draw_layer_from_str, frame_handle_of, frame_wrapper, stra
 
 /// Populate `m`'s visibility, hierarchy, strata, backdrop and input methods.
 pub(super) fn install(lua: &Lua, m: &Table) -> mlua::Result<()> {
+    // TBC Cooldown frames share Frame layout but own a start/duration on the UI clock.
+    // The renderer can use this state when its radial-swipe pass is implemented.
+    m.set(
+        "SetCooldown",
+        lua.create_function(|lua, (this, start, duration): (Table, f64, f64)| {
+            let h = frame_handle_of(lua, &this)?;
+            let mut model = lua.app_data_mut::<Model>().expect("model");
+            if duration > 0.0 {
+                model.cooldown_timers.insert(h, (start, duration));
+            } else {
+                model.cooldown_timers.remove(&h);
+            }
+            Ok(())
+        })?,
+    )?;
+    m.set(
+        "GetCooldown",
+        lua.create_function(|lua, this: Table| {
+            let h = frame_handle_of(lua, &this)?;
+            let model = lua.app_data_ref::<Model>().expect("model");
+            Ok(model.cooldown_timers.get(&h).copied().unwrap_or((0.0, 0.0)))
+        })?,
+    )?;
     // Show / Hide / visibility. No `SetShown`: no 1.12 method table registers it.
     m.set(
         "Show",

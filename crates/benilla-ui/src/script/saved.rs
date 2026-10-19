@@ -43,6 +43,10 @@ impl super::UiScript {
         self.model_mut().saved_names.clone()
     }
 
+    pub fn saved_variable_names_per_character(&self) -> Vec<String> {
+        self.model_ref().saved_names_per_character.clone()
+    }
+
     /// Serialize every registered global as `NAME = value` lines, in bytes, since a Lua string is
     /// bytes and the reference writes them raw. A value with no literal (a function, userdata,
     /// `inf`, `NaN`) is skipped with a warning where the reference drops it silently; `nil` is
@@ -192,6 +196,16 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
             let mut model = lua.app_data_mut::<Model>().expect("model app_data");
             if !model.saved_names.contains(&name) {
                 model.saved_names.push(name);
+            }
+            Ok(())
+        })?,
+    )?;
+    lua.globals().set(
+        "RegisterForSavePerCharacter",
+        lua.create_function(|lua, name: String| {
+            let mut model = lua.app_data_mut::<Model>().expect("model app_data");
+            if !model.saved_names_per_character.contains(&name) {
+                model.saved_names_per_character.push(name);
             }
             Ok(())
         })?,

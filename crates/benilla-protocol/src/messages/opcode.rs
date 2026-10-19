@@ -87,6 +87,10 @@ pub const SMSG_PLAY_OBJECT_SOUND: u16 = 0x0278;
 pub const SMSG_PLAY_SOUND: u16 = 0x02D2;
 /// The zone's weather, pushed by the server.
 pub const SMSG_WEATHER: u16 = 0x02F4;
+/// TBC totem spawn acknowledgement, including slot, GUID, duration and spell ID.
+pub const SMSG_TOTEM_CREATED: u16 = 0x0412;
+/// Dismiss an elemental totem by zero-based slot.
+pub const CMSG_TOTEM_DESTROYED: u16 = 0x0413;
 pub const SMSG_EMOTE: u16 = 0x0103;
 pub const CMSG_TEXT_EMOTE: u16 = 0x0104;
 pub const SMSG_TEXT_EMOTE: u16 = 0x0105;
@@ -376,7 +380,7 @@ pub const SMSG_SERVER_MESSAGE: u16 = 0x0291; // 657
 pub const SMSG_CHAT_RESTRICTED: u16 = 0x02FD; // 765
 /// A defense broadcast (the Eastern Plaguelands towers): `u32 zoneId`, `u32 length`, the text
 /// (`Map.cpp:1868-1884`). Posted like [`SMSG_ZONE_UNDER_ATTACK`] (`0x49de30`).
-pub const SMSG_DEFENSE_MESSAGE: u16 = 0x033B; // 827
+pub const SMSG_DEFENSE_MESSAGE: u16 = 0x033A; // 826; TBC Opcodes.h (0x33B is SMSG_INSTANCE_DIFFICULTY)
 
 /// `/played`: an empty request; the reply is `u32 total`, `u32 level` seconds (`Misc.cpp:278-282`).
 pub const CMSG_PLAYED_TIME: u16 = 0x01CC; // 460
@@ -895,6 +899,12 @@ pub const CMSG_LOOT_METHOD: u16 = 0x007A; // 122
 pub const CMSG_GROUP_DISBAND: u16 = 0x007B; // 123
 pub const SMSG_GROUP_DESTROYED: u16 = 0x007C; // 124
 pub const SMSG_GROUP_LIST: u16 = 0x007D; // 125
+/// TBC normal/heroic selection; server body is difficulty, notify, isInGroup (three u32).
+pub const MSG_SET_DUNGEON_DIFFICULTY: u16 = 0x0329;
+/// Initial instance's actual difficulty, distinct from the selected mode (two u32).
+pub const SMSG_INSTANCE_DIFFICULTY: u16 = 0x033B;
+/// Set the currently displayed earned character title (signed 32-bit bit index).
+pub const CMSG_SET_TITLE: u16 = 0x0374;
 pub const SMSG_PARTY_MEMBER_STATS: u16 = 0x007E; // 126
 pub const SMSG_PARTY_COMMAND_RESULT: u16 = 0x007F; // 127
 /// Both ways: our ping has no guid; the server adds ours and relays it (`GroupHandler.cpp:382`).

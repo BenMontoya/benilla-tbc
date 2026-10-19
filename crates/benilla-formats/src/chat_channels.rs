@@ -137,9 +137,9 @@ fn schema() -> Schema {
     s.add_field(SchemaField::new("ChannelID", FieldType::UInt32));
     s.add_field(SchemaField::new("Flags", FieldType::UInt32));
     s.add_field(SchemaField::new("FactionGroup", FieldType::UInt32));
-    s.add_field(SchemaField::new_array("Name", FieldType::String, 8));
+    s.add_field(SchemaField::new_array("Name", FieldType::String, 16));
     s.add_field(SchemaField::new("NameMask", FieldType::UInt32));
-    s.add_field(SchemaField::new_array("Shortcut", FieldType::String, 8));
+    s.add_field(SchemaField::new_array("Shortcut", FieldType::String, 16));
     s.add_field(SchemaField::new("ShortcutMask", FieldType::UInt32));
     s.set_key_field("ChannelID");
     s
@@ -161,7 +161,7 @@ pub fn load_chat_channels_catalog(chain: &mut Chain) -> Result<ChatChannelsCatal
             id,
             flags,
             pattern,
-            shortcut: str_at(&rs, r, 12).unwrap_or_default(),
+            shortcut: str_at(&rs, r, 20).unwrap_or_default(),
         });
     }
     Ok(ChatChannelsCatalog { rows })

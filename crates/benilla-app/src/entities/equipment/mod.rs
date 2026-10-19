@@ -253,7 +253,7 @@ pub(in crate::entities) fn ensure_item_model(
         }
         ItemModelKind::Quiver => ("Quiver", 0),
     };
-    let dir = format!("Item\\ObjectComponents\\{dir_name}");
+    let mut dir = format!("Item\\ObjectComponents\\{dir_name}");
     let dm = match held.catalog.get(display) {
         Some(d) if d.model[col].is_some() => {
             let mut model = d.model[col].clone().unwrap();
@@ -264,6 +264,14 @@ pub(in crate::entities) fn ensure_item_model(
                 let letter = if sex == 1 { 'F' } else { 'M' };
                 let stem = model.strip_suffix(".m2").unwrap_or(&model).to_string();
                 model = format!("{stem}_{prefix}{letter}.m2");
+            }
+            // The server's inventory type can lag its display; TBC puts shield
+            // and buckler M2s under Shield even when the slot arrived as Weapon.
+            let basename = model.to_ascii_lowercase();
+            if matches!(kind, ItemModelKind::Weapon)
+                && (basename.starts_with("shield_") || basename.starts_with("buckler_"))
+            {
+                dir = "Item\\ObjectComponents\\Shield".to_string();
             }
             let disp_id = display;
             debug!(

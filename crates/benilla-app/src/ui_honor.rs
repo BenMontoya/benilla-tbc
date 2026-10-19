@@ -35,6 +35,7 @@ struct HonorFeedState {
 /// The per-VM change bases: the last snapshot and the held reply's guid.
 #[derive(Default)]
 struct HonorFeedMemo {
+    title_names_sent: bool,
     last: Option<HonorState>,
     last_inspect: Option<u64>,
 }
@@ -59,6 +60,27 @@ mod net {
     }
 }
 
+#[derive(Resource)]
+struct TitleCatalog(Vec<(u32, String, String)>);
+
+fn load_title_catalog(
+    mut commands: Commands,
+    world_assets: Option<Res<benilla_assets::WorldAssets>>,
+) {
+    use benilla_assets::LockRecover;
+    let Some(world_assets) = world_assets else { return };
+    let mut chain = world_assets.chain.lock_recover();
+    match benilla_formats::load_char_titles(&mut chain) {
+        Ok(rows) => {
+            info!("titles: loaded {} TBC CharTitles.dbc rows", rows.len());
+            commands.insert_resource(TitleCatalog(rows.into_iter().map(|row| {
+                (row.bit_index, row.name_male, row.name_female)
+            }).collect()));
+        }
+        Err(error) => warn!("titles: couldn't read CharTitles.dbc: {error:#}"),
+    }
+}
+
 pub(crate) struct UiHonorPlugin;
 
 impl Plugin for UiHonorPlugin {
@@ -67,6 +89,7 @@ impl Plugin for UiHonorPlugin {
         app.init_resource::<InspectHonor>()
             .init_resource::<HonorFeedState>()
             .init_resource::<crate::nameplates::PvpNameStrings>()
+            .add_systems(Startup, load_title_catalog.after(benilla_assets::AssetSet::Open))
             .add_systems(Update, feed_honor.in_set(UiFeed))
             // A VM holder, so after the tick; before the driver, so a new VM's strings reach the
             // lines the frame it arrives.
@@ -159,15 +182,38 @@ fn feed_honor(
     group: Res<crate::ui_party::GroupState>,
     mut inspect_honor: ResMut<InspectHonor>,
     mut state: ResMut<HonorFeedState>,
+    titles: Option<Res<TitleCatalog>>,
     commands: Res<NetCommands>,
 ) {
     let Some(mut script) = script else {
         return;
     };
     let memo = state.vm.get(&script);
+    if !memo.title_names_sent {
+        if let Some(titles) = titles.as_deref() {
+            script.set_tbc_title_names(titles.0.clone());
+            memo.title_names_sent = true;
+        }
+    }
 
     // --- the self snapshot -------------------------------------------------------------------
     if let Ok(store) = self_store.single() {
+        let fields = &store.0;
+        let currency = [
+            fields.player_honor_currency().unwrap_or(0),
+            fields.player_arena_currency().unwrap_or(0),
+        ];
+        let ratings = std::array::from_fn(|i| fields.player_combat_rating(i as u8).unwrap_or(0));
+        let teams = std::array::from_fn(|slot| {
+            std::array::from_fn(|field| {
+                fields.player_arena_team_field(slot as u8, field as u8).unwrap_or(0)
+            })
+        });
+        script.set_tbc_pvp_fields(currency, ratings, teams);
+        script.set_tbc_titles(
+            fields.player_known_titles().unwrap_or(0),
+            fields.player_chosen_title().unwrap_or(0),
+        );
         if let Some(fresh) = honor_snapshot(store) {
             if memo.last.as_ref() != Some(&fresh) {
                 let (kills, ranks) = events_for(memo.last.as_ref(), &fresh);

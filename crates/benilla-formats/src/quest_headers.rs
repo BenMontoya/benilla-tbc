@@ -33,7 +33,7 @@ impl QuestHeaderNames {
 /// Load both name tables through the patch chain.
 pub fn load_quest_header_names(chain: &mut Chain) -> Result<QuestHeaderNames> {
     Ok(QuestHeaderNames {
-        zones: load_id_name_table(chain, "DBFilesClient\\AreaTable.dbc", 11, 25, "AreaTable")?,
+        zones: load_id_name_table(chain, "DBFilesClient\\AreaTable.dbc", 11, 35, "AreaTable")?,
         sorts: load_id_name_table(chain, "DBFilesClient\\QuestSort.dbc", 1, 10, "QuestSort")?,
     })
 }

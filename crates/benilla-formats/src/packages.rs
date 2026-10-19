@@ -13,7 +13,7 @@ use crate::dbc::{parse, str_at, u32_at};
 const PACKAGE: &str = "DBFilesClient\\Package.dbc";
 
 /// The column count the loader requires.
-const PACKAGE_FIELDS: usize = 12;
+const PACKAGE_FIELDS: usize = 20;
 
 /// One `Package.dbc` row.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -32,7 +32,7 @@ pub fn load_packages(chain: &mut Chain) -> Result<Vec<PackageRow>> {
     let bytes = chain.read_file(PACKAGE).context("reading Package.dbc")?;
     let mut schema = Schema::new("Package");
     for i in 0..PACKAGE_FIELDS {
-        let ty = if i == 1 || i == 3 {
+        let ty = if i == 1 || (3..19).contains(&i) {
             FieldType::String
         } else {
             FieldType::UInt32

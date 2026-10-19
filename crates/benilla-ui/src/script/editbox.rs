@@ -169,7 +169,13 @@ fn route(lua: &Lua) -> Option<FrameHandle> {
     }
     let h = topmost_autofocus(lua)?;
     set_focus_handle(lua, h);
-    Some(h)
+    // A box that could not actually gain focus must not swallow a typed character.
+    let focused = lua
+        .app_data_ref::<Model>()
+        .expect("model app_data")
+        .focused_editbox
+        == Some(h);
+    focused.then_some(h)
 }
 
 /// The topmost-drawn visible `autoFocus` EditBox, the keyboard self-acquire target.
@@ -178,8 +184,10 @@ fn topmost_autofocus(lua: &Lua) -> Option<FrameHandle> {
     let sorted = order::traversal(&model.arena);
     for (target, _) in sorted.iter().rev() {
         if let ZTarget::Frame(fh) = *target {
-            if let Some(KindState::EditBox(eb)) = model.arena.frame(fh).map(|f| &f.kind_state) {
-                if eb.auto_focus {
+            if let Some(f) = model.arena.frame(fh) {
+                if f.effective_visible
+                    && matches!(&f.kind_state, KindState::EditBox(eb) if eb.auto_focus)
+                {
                     return Some(fh);
                 }
             }

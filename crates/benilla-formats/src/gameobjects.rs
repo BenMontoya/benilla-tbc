@@ -39,7 +39,7 @@ fn schema() -> Schema {
     let mut s = Schema::new("GameObjectDisplayInfo");
     s.add_field(SchemaField::new("ID", FieldType::UInt32));
     s.add_field(SchemaField::new("ModelName", FieldType::String));
-    for i in 0..10 {
+    for i in 0..16 {
         s.add_field(SchemaField::new(format!("Sound{i}"), FieldType::UInt32));
     }
     s

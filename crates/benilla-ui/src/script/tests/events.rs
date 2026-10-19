@@ -1,20 +1,18 @@
-//! Event registration and dispatch (`0x704d50`, `0x704f10`). Handlers read varargs through Lua
-//! 5.0's implicit `arg` table: `...` is not a value in the 1.12 client's grammar.
+//! Event registration and dispatch for TBC handlers and legacy globals.
 
 use super::common::script;
 use crate::script::*;
 
-/// A handler gets no arguments (`0x705199` calls `lua_pcall` with zero); its inputs are the
-/// `this`, `event` and `argN` globals.
+/// A handler receives positional arguments and the legacy globals.
 #[test]
-fn an_event_handler_gets_no_arguments_and_reads_the_globals() {
+fn an_event_handler_gets_tbc_arguments_and_legacy_globals() {
     let mut s = script();
     s.run(
         r#"
         local f = CreateFrame("Frame", "EF")
         f:RegisterEvent("UNIT_HEALTH")
         f:SetScript("OnEvent", function(a, b, c)
-            r_args = (a == nil and b == nil and c == nil)
+            r_args = (a == EF and b == "UNIT_HEALTH" and c == "player")
             r_this = (this == EF)
             r_event = event
             r_arg1 = arg1
@@ -32,7 +30,7 @@ fn an_event_handler_gets_no_arguments_and_reads_the_globals() {
 
     assert!(
         s.eval::<bool>("return r_args").unwrap(),
-        "a declared parameter is nil: no positional argument is passed"
+        "TBC handlers receive frame, event and payload"
     );
     assert!(s.eval::<bool>("return r_this").unwrap());
     assert_eq!(s.eval::<String>("return r_event").unwrap(), "UNIT_HEALTH");

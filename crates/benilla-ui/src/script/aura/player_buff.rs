@@ -66,54 +66,50 @@ fn buff_index_arg(lua: &Lua, v: Value, usage: &'static str) -> mlua::Result<i64>
     }
 }
 
-/// The record at cache position `pos`, or `None` past the packed prefix, where the reference has
-/// NULL outside `0..0x30` (`0x4e4430`) and cleared records its siblings treat as absent. Deviation:
+/// The record at TBC's 1-based buffIndex, or `None` for zero and out of range.
+/// The index returned by `GetPlayerBuff` is passed to each sibling unchanged. Deviation:
 /// `GetPlayerBuffApplications` answers 1 for a cleared record where the reference reads its stale
 /// `+0x9`, the previous occupant's count, because no guarded caller reaches it.
 fn player_buff_record(lua: &Lua, pos: i64) -> Option<AuraState> {
-    let pos = usize::try_from(pos).ok()?;
+    let pos = usize::try_from(pos.checked_sub(1)?).ok()?;
     let model = lua.app_data_ref::<Model>().expect("model app_data");
     model.player_auras.get(pos).cloned()
 }
 
-/// The enumerator (`0x4e43b0`): the `index`-th record passing `filter`, by ascending position,
-/// with that position. A negative `index` never matches the counter, which counts up from 0.
+/// TBC's 1-based `index`-th record passing `filter`, by ascending position.
+/// Zero and negative indexes cannot match the stock 2.4.3 buff frame's 1..N loop.
 fn enumerate_player_buff(
     lua: &Lua,
     index: i64,
     filter: PlayerBuffFilter,
 ) -> Option<(usize, AuraState)> {
-    if index < 0 {
-        return None;
-    }
+    let index = usize::try_from(index.checked_sub(1)?).ok()?;
     let model = lua.app_data_ref::<Model>().expect("model app_data");
     model
         .player_auras
         .iter()
         .enumerate()
         .filter(|(_, a)| filter.matches(a))
-        .nth(usize::try_from(index).ok()?)
+        .nth(index)
         .map(|(pos, a)| (pos, a.clone()))
 }
 
-/// Register the six 1.12 globals.
+/// Register the six TBC 2.4.3 player-buff globals.
 pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
     let g = lua.globals();
 
-    // GetPlayerBuff(index [, "filter"]) (`0x4e45d0`) returns two numbers on both paths
-    // (`0x4e471e`, `0x4e4733`): the position, -1 past the end and never nil, as addons loop while
-    // it is `>= 0`; and untilCancelled as the number 0 or 1, which stock `BuffFrame.lua:124`
-    // compares with `1`. The index is 0-based, used without `UnitBuff`'s `dec` (`0x4e460a`,
-    // `0x519579`). Unfiltered, every record passes, so `GetPlayerBuff(i)` is `i`, which addons use
-    // to cancel by the counter.
+    // TBC BuffFrame.lua:35-67 enumerates 1..BUFF_MAX_DISPLAY and uses a returned
+    // buffIndex of ZERO to detect the end. An absent aura MUST return 0, not -1:
+    // Lua treats -1 as a live slot, allocating every empty button and a "0s" timer.
+    // Occupied positions are 1-based throughout the player-buff API.
     g.set(
         "GetPlayerBuff",
         lua.create_function(|lua, (index, filter): (Value, Option<String>)| {
             let index = buff_index_arg(lua, index, r#"Usage: GetPlayerBuff(index [, "filter"])"#)?;
             let hit = enumerate_player_buff(lua, index, PlayerBuffFilter::parse(filter.as_deref()));
             let (pos, until_cancelled) = match hit {
-                Some((pos, a)) => (pos as i64, i64::from(a.until_cancelled)),
-                None => (-1, 0),
+                Some((pos, a)) => (pos as i64 + 1, i64::from(a.until_cancelled)),
+                None => (0, 0),
             };
             Ok(MultiValue::from_vec(vec![
                 Value::Integer(pos),

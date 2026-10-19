@@ -20,8 +20,8 @@ const SPELL_VISUAL: &str = "DBFilesClient\\SpellVisual.dbc";
 const SPELL_VISUAL_KIT: &str = "DBFilesClient\\SpellVisualKit.dbc";
 const SPELL_VISUAL_EFFECT_NAME: &str = "DBFilesClient\\SpellVisualEffectName.dbc";
 
-const SPELL_VISUAL_FIELDS: usize = 16;
-const SPELL_VISUAL_KIT_FIELDS: usize = 35;
+const SPELL_VISUAL_FIELDS: usize = 25;
+const SPELL_VISUAL_KIT_FIELDS: usize = 38;
 
 /// Each emitter slot's M2 `AttachmentID`, kit fields 3-11 in order, as the client's slot loop
 /// (`0x60edf0`) pushes them: head, chest, base, left hand, right hand, breath, special 1-3.

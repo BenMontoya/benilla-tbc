@@ -478,6 +478,9 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
         })?,
     )?;
 
+    // TBC corrected the spelling of the bag-portrait API.
+    let bag_portrait: mlua::Function = lua.globals().get("SetBagPortaitTexture")?;
+    lua.globals().set("SetBagPortraitTexture", bag_portrait)?;
     lua.globals().set(
         "GetContainerNumSlots",
         lua.create_function(|lua, bag: i64| {
@@ -486,6 +489,19 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
         })?,
     )?;
 
+    lua.globals().set(
+        "GetContainerNumFreeSlots",
+        lua.create_function(|lua, bag: i64| {
+            let model = lua.app_data_ref::<Model>().expect("model app_data");
+            let free = model.containers.get(&bag).map_or(0, |c| {
+                c.num_slots.saturating_sub(
+                    c.slots.iter().filter(|(index, _)| **index > 0).count() as u32,
+                )
+            });
+            // The second return is the item-family bag type. General-purpose bags are 0.
+            Ok((free, 0u32))
+        })?,
+    )?;
     lua.globals().set(
         "GetBagName",
         lua.create_function(|lua, bag: i64| {

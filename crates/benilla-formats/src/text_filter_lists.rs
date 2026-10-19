@@ -28,6 +28,9 @@ fn schema(name: &str) -> Schema {
     let mut s = Schema::new(name);
     s.add_field(SchemaField::new("ID", FieldType::UInt32));
     s.add_field(SchemaField::new("Pattern", FieldType::String));
+    if name == "ChatProfanity" {
+        s.add_field(SchemaField::new("LocaleMask", FieldType::UInt32));
+    }
     s.set_key_field("ID");
     s
 }

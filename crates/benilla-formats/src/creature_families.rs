@@ -20,8 +20,8 @@ const CREATURE_FAMILY: &str = "DBFilesClient\\CreatureFamily.dbc";
 const ITEM_PET_FOOD: &str = "DBFilesClient\\ItemPetFood.dbc";
 
 /// `CreatureFamily.dbc`'s field count, which `benilla-dbc` checks against the header.
-const FAMILY_FIELDS: usize = 18;
-const FOOD_FIELDS: usize = 10;
+const FAMILY_FIELDS: usize = 26;
+const FOOD_FIELDS: usize = 18;
 
 const FAMILY_MIN_SCALE_FIELD: usize = 1;
 const FAMILY_MIN_SCALE_LEVEL_FIELD: usize = 2;
@@ -31,7 +31,7 @@ const FAMILY_FOOD_MASK_FIELD: usize = 0x1c / 4;
 /// The enUS name, the localized block's first slot.
 const FAMILY_NAME_FIELD: usize = 0x20 / 4;
 /// `iconFile`, after the name block's locale flags.
-const FAMILY_ICON_FIELD: usize = 0x44 / 4;
+const FAMILY_ICON_FIELD: usize = 25;
 /// `ItemPetFood.dbc`'s enUS name.
 const FOOD_NAME_FIELD: usize = 1;
 

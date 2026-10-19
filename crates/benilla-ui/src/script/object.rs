@@ -271,6 +271,8 @@ pub(crate) fn registered_frame_kind(lua: &Lua, kind: &str) -> Option<FrameKind> 
 fn frame_kind_from_str(s: &str) -> Option<FrameKind> {
     Some(match enum_token(s).as_str() {
         "FRAME" => FrameKind::Frame,
+        // TBC uses a dedicated Cooldown widget; use the common Frame layout path.
+        "COOLDOWN" => FrameKind::Frame,
         // Registered at `0x495948`, the one row passing `1` as its third argument.
         "WORLDFRAME" => FrameKind::WorldFrame,
         // A plain `CSimpleFrame`: factory `0x495ba0` allocates `0x314` like `<Frame>`'s `0x6eec10`,
@@ -329,6 +331,10 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
     // The wrapper cache and the per-frame script tables, as registry roots.
     lua.set_named_registry_value(REG_WRAPPERS, lua.create_table()?)?;
     lua.set_named_registry_value(REG_SCRIPTS, lua.create_table()?)?;
+    lua.set_named_registry_value(
+        events_regions::REG_FRAME_ATTRIBUTES,
+        lua.create_table()?,
+    )?;
 
     // Opened before any method table is built; `region_map::install` below closes it.
     super::region_map::open_arms(lua);
@@ -423,6 +429,39 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
             })?,
         )?;
     }
+
+    lua.globals().set(
+        "GetModifiedClick",
+        lua.create_function(|_, action: String| {
+            Ok(match action.to_ascii_uppercase().as_str() {
+                "SELFCAST" => "ALT",
+                "STICKYCAMERA" | "DRESSUP" => "CTRL",
+                "AUTOLOOTTOGGLE" | "CHATLINK" | "SOCKETITEM" | "SPLITSTACK"
+                | "PICKUPACTION" | "COMPAREITEMS" | "OPENALLBAGS"
+                | "QUESTWATCHTOGGLE" => "SHIFT",
+                _ => "NONE",
+            })
+        })?,
+    )?;
+
+    // The TBC bindings use modified clicks for sticky camera, loot and item actions.
+    // The modifier state is updated by the host before the binding executes.
+    lua.globals().set(
+        "IsModifiedClick",
+        lua.create_function(|lua, action: String| {
+            let model = lua.app_data_ref::<Model>().expect("model");
+            let (shift, ctrl, alt) = model.modifiers;
+            let active = match action.as_str() {
+                "SELFCAST" => alt,
+                "STICKYCAMERA" | "DRESSUP" => ctrl,
+                "AUTOLOOTTOGGLE" | "CHATLINK" | "SOCKETITEM" | "SPLITSTACK"
+                | "PICKUPACTION" | "COMPAREITEMS" | "OPENALLBAGS"
+                | "QUESTWATCHTOGGLE" => shift,
+                _ => false,
+            };
+            Ok(crate::script::binding_abi::flag(active))
+        })?,
+    )?;
 
     Ok(())
 }
@@ -568,7 +607,10 @@ pub(super) fn create_frame(
             let model = lua.app_data_ref::<Model>().expect("model app_data");
             let templates = model.framexml_templates.borrow();
             // One name, verbatim, case-folded, as `framexml::expand` resolves it.
-            templates.contains_key(t) || templates.keys().any(|k| k.eq_ignore_ascii_case(t))
+            t.split(',').map(str::trim).filter(|name| !name.is_empty()).all(|name| {
+                templates.contains_key(name)
+                    || templates.keys().any(|k| k.eq_ignore_ascii_case(name))
+            })
         };
         if !known {
             return Err(mlua::Error::runtime(format!(

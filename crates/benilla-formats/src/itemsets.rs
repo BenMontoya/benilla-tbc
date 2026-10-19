@@ -46,7 +46,7 @@ impl ItemSetCatalog {
 fn item_set_schema() -> Schema {
     let mut s = Schema::new("ItemSet");
     s.add_field(SchemaField::new("ID", FieldType::UInt32));
-    for i in 0..8 {
+    for i in 0..16 {
         s.add_field(SchemaField::new(format!("Name{i}"), FieldType::String));
     }
     s.add_field(SchemaField::new("NameFlags", FieldType::UInt32));
@@ -80,15 +80,15 @@ pub fn load_item_sets(chain: &mut Chain) -> Result<ItemSetCatalog> {
             id,
             ItemSetInfo {
                 name,
-                items: (10..27).map(at).filter(|&i| i != 0).collect(),
+                items: (18..35).map(at).filter(|&i| i != 0).collect(),
                 bonuses: (0..8)
                     .filter_map(|i| {
-                        let spell = at(27 + i);
-                        (spell != 0).then(|| (at(35 + i), spell))
+                        let spell = at(35 + i);
+                        (spell != 0).then(|| (at(43 + i), spell))
                     })
                     .collect(),
-                required_skill: at(43),
-                required_skill_rank: at(44),
+                required_skill: at(51),
+                required_skill_rank: at(52),
             },
         );
     }

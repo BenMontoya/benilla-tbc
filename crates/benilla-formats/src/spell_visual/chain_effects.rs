@@ -13,7 +13,7 @@ use crate::dbc::{f32_at, parse, str_at, u32_at};
 use crate::Chain;
 
 const SPELL_CHAIN_EFFECTS: &str = "DBFilesClient\\SpellChainEffects.dbc";
-const SPELL_CHAIN_EFFECTS_FIELDS: usize = 8;
+const SPELL_CHAIN_EFFECTS_FIELDS: usize = 47;
 
 /// The client's clamp on a chain proc's beam count (`0x6ecbd0`); only kit 6397, Chain Burn, asks
 /// for more than one.
@@ -71,6 +71,10 @@ fn chain_effects_schema() -> Schema {
     add("BoltLife", FieldType::UInt32);
     add("BoltStagger", FieldType::UInt32);
     add("Texture", FieldType::String);
+    // TBC adds 39 beam geometry/animation columns beyond the original eight.
+    for i in 8..SPELL_CHAIN_EFFECTS_FIELDS {
+        add(&format!("TbcExtra{i}"), FieldType::UInt32);
+    }
     debug_assert_eq!(s.fields.len(), SPELL_CHAIN_EFFECTS_FIELDS);
     s
 }

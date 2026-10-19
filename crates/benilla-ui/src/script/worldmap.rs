@@ -496,6 +496,12 @@ fn select_resolved(model: &mut Model, continent: u32, zone: u32, direct_area: Op
 
 /// Register the world-map globals.
 pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
+    // The death-release map marker is absent unless the host supplies a release point.
+    // Return zero coordinates so the stock WorldMapFrame hides the marker.
+    lua.globals().set("GetDeathReleasePosition",
+        lua.create_function(|_, ()| Ok((0.0f32, 0.0f32)))?)?;
+    lua.globals().set("InitWorldMapPing",
+        lua.create_function(|_, ()| Ok(()))?)?;
     let g = lua.globals();
 
     // GetMapContinents() → the continent names, in index order.

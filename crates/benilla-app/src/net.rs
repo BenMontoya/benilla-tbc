@@ -472,6 +472,11 @@ impl Objects<'_, '_> {
         self.me.single().ok()
     }
 
+    /// The local player's descriptor, for resolving the item GUID required by TBC item casts.
+    pub(crate) fn player_fields(&self) -> Option<&ObjectFields> {
+        self.player().and_then(|e| self.stores.get(e).ok()).map(|s| &s.0)
+    }
+
     /// An item object's countdown cells.
     pub(crate) fn countdowns(&self, guid: u64) -> Option<&crate::items::Countdowns> {
         self.index
@@ -901,6 +906,8 @@ pub(crate) enum ClientCommand {
         bag_index: u8,
         slot: u8,
         spell_index: u8,
+        /// The item instance, required in TBC CMSG_USE_ITEM after cast_count.
+        item_guid: u64,
         target: benilla_protocol::messages::UseItemTarget,
     },
     /// `CMSG_OPEN_ITEM`: the server answers `SMSG_LOOT_RESPONSE` on the item's own guid; a wrapped
@@ -991,6 +998,8 @@ pub(crate) enum ClientCommand {
     CancelAura {
         spell_id: u32,
     },
+    /// `CMSG_TOTEM_DESTROYED`: zero-based elemental slot.
+    DestroyTotem { slot: u8 },
     /// `CMSG_SET_ACTION_BUTTON`: `button` is the Lua action id minus 1, `packed` is
     /// `kind<<24 | action` (0 clears). Client-authoritative, no answer.
     SetActionButton {
@@ -1782,6 +1791,8 @@ pub(crate) enum ClientCommand {
     },
     /// `MSG_RAID_READY_CHECK` with an empty body, leader only.
     ReadyCheckStart,
+    /// TBC MSG_SET_DUNGEON_DIFFICULTY: request 0 normal or 1 heroic.
+    SetDungeonDifficulty { mode: u8 },
     /// `MSG_RAID_READY_CHECK` with one byte.
     ReadyCheckAnswer {
         ready: bool,
@@ -1839,6 +1850,8 @@ pub(crate) enum ClientCommand {
     ToggleHelm,
     /// `CMSG_TOGGLE_CLOAK`, as [`Self::ToggleHelm`].
     ToggleCloak,
+    /// TBC CMSG_SET_TITLE; the chosen-title field is updated by the server.
+    SetCurrentTitle { title: u32 },
     // ── Guild ──
     // Members by name; rank 0 is the guild master. A change is answered by a fresh
     // `SMSG_GUILD_ROSTER`, never applied at the send; a refusal by `SMSG_GUILD_COMMAND_RESULT`.

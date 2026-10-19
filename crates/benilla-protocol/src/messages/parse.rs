@@ -361,8 +361,10 @@ fn parse_server_body(
             }
         }
         // Wall-clock unix seconds (`QueryHandler.cpp:418-423`), not the game clock above.
-        opcode::SMSG_QUERY_TIME_RESPONSE => ServerPacket::QueryTimeResponse {
-            unix_time: read_u32_le(&mut r)?,
+        opcode::SMSG_QUERY_TIME_RESPONSE => {
+            let unix_time = read_u32_le(&mut r)?;
+            let _daily_reset_seconds = read_u32_le(&mut r)?;
+            ServerPacket::QueryTimeResponse { unix_time }
         },
         opcode::SMSG_BINDPOINTUPDATE => {
             // vmangos BindpointUpdate::AppendBodyTo (Packets/Misc.cpp): x, y, z, mapId, areaId.
@@ -515,7 +517,7 @@ fn parse_server_body(
         opcode::SMSG_WEATHER => ServerPacket::Weather {
             weather_type: read_u32_le(&mut r)?,
             grade: read_f32_le(&mut r)?,
-            sound_id: read_u32_le(&mut r)?,
+            sound_id: 0,
             instant: read_u8(&mut r)? != 0,
         },
         opcode::SMSG_TEXT_EMOTE => {
@@ -745,14 +747,22 @@ fn parse_server_body(
             caster: spellbook::read_cooldown_cheat(&mut r)?,
         },
         opcode::MSG_CHANNEL_START => {
-            let (spell_id, duration_ms) = spells::read_channel_start(&mut r)?;
+            let (caster, spell_id, duration_ms) = spells::read_channel_start(&mut r)?;
             ServerPacket::ChannelStart {
+                caster,
                 spell_id,
                 duration_ms,
             }
         }
-        opcode::MSG_CHANNEL_UPDATE => ServerPacket::ChannelUpdate {
-            remaining_ms: spells::read_channel_update(&mut r)?,
+        opcode::MSG_CHANNEL_UPDATE => {
+            let (caster, remaining_ms) = spells::read_channel_update(&mut r)?;
+            ServerPacket::ChannelUpdate { caster, remaining_ms }
+        }
+        opcode::SMSG_TOTEM_CREATED => ServerPacket::TotemCreated {
+            slot: read_u8(&mut r)?,
+            guid: read_u64_le(&mut r)?,
+            duration_ms: read_u32_le(&mut r)?,
+            spell_id: read_u32_le(&mut r)?,
         },
         opcode::SMSG_UPDATE_AURA_DURATION => {
             let (slot, remaining_ms) = spells::read_update_aura_duration(&mut r)?;
@@ -1156,8 +1166,8 @@ fn parse_server_body(
                     let _ = read_cstring(&mut r)?; // name2..name4, always empty in 5875
                 }
                 let subname = read_cstring(&mut r)?;
-                // `HandleCreatureQueryOpcode`: seven `u32`s (type_flags, type, pet_family, rank,
-                // unk, pet_spell_list_id, display_id), then civilian and racial_leader as `u8`s.
+                let _icon_name = read_cstring(&mut r)?; // CMaNGOS TBC QueryHandler: IconName
+                // Six template words precede four display ids, then two float multipliers.
                 let type_flags = read_u32_le(&mut r)?;
                 let creature_type = read_u32_le(&mut r)?;
                 let pet_family = read_u32_le(&mut r)?;
@@ -1165,8 +1175,12 @@ fn parse_server_body(
                 let _unk = read_u32_le(&mut r)?;
                 let _pet_spell_list = read_u32_le(&mut r)?;
                 let display_id = read_u32_le(&mut r)?;
-                let civilian = read_u8(&mut r)? != 0;
+                for _ in 0..3 { let _ = read_u32_le(&mut r)?; }
+                let _health_multiplier = read_f32_le(&mut r)?;
+                let _power_multiplier = read_f32_le(&mut r)?;
                 let racial_leader = read_u8(&mut r)? != 0;
+                // The 2.4.3 response carries no separate civilian byte.
+                let civilian = false;
                 ServerPacket::CreatureQueryResponse {
                     entry,
                     info: Some(CreatureQueryInfo {
@@ -1250,6 +1264,17 @@ fn parse_server_body(
             name: group::read_group_set_leader(&mut r)?,
         },
         opcode::SMSG_GROUP_DESTROYED => ServerPacket::GroupDestroyed,
+        opcode::MSG_SET_DUNGEON_DIFFICULTY => {
+            let difficulty = read_u32_le(&mut r)?;
+            let _notify = read_u32_le(&mut r)?;
+            let in_group = read_u32_le(&mut r)? != 0;
+            ServerPacket::DungeonDifficulty { difficulty, in_group }
+        }
+        opcode::SMSG_INSTANCE_DIFFICULTY => {
+            let difficulty = read_u32_le(&mut r)?;
+            let _reserved = read_u32_le(&mut r)?;
+            ServerPacket::InstanceDifficulty { difficulty }
+        }
         opcode::SMSG_GROUP_LIST => {
             let (group_type, own_flags, members, leader, loot) = group::read_group_list(&mut r)?;
             ServerPacket::GroupList {

@@ -367,11 +367,7 @@
 ** CHANGE it to 2 if you want the old behaviour, or undefine it to turn
 ** off the advisory error when nesting [[...]].
 */
-/* BENILLA: 2, the 5.0 behaviour. 1.12.1 ships Lua 5.0, where `[[ ... [[ ... ]] ... ]]`
-** nests; 5.1 kept the machinery and put an advisory error in front of it, on which two
-** corpus addons stop loading ("nesting of [[...]] is deprecated").
-*/
-#define LUA_COMPAT_LSTR		2
+#define LUA_COMPAT_LSTR		1
 
 /*
 @@ LUA_COMPAT_GFIND controls compatibility with old 'string.gfind' name.

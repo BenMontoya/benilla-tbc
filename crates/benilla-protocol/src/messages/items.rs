@@ -234,6 +234,7 @@ pub(super) fn read_item_query_response(r: &mut &[u8]) -> io::Result<(u32, Option
     }
     let class = read_u32_le(r)?;
     let subclass = read_u32_le(r)?;
+    let _tbc_unknown = read_u32_le(r)?; // TBC 2.0.3 item subclass extension
     let name = read_cstring(r)?;
     for _ in 0..3 {
         let _ = read_cstring(r)?; // name2..name4, always sent empty
@@ -351,12 +352,23 @@ pub(super) fn read_item_query_response(r: &mut &[u8]) -> io::Result<(u32, Option
     let material = read_u32_le(r)?;
     let sheath = read_u32_le(r)?;
     let random_property = read_u32_le(r)?;
+    let _random_suffix = read_u32_le(r)?;
     let block = read_u32_le(r)?;
     let item_set = read_u32_le(r)?;
     let max_durability = read_u32_le(r)?;
     let area = read_u32_le(r)?;
     let map = read_u32_le(r)?;
     let bag_family = read_u32_le(r)?;
+    let _totem_category = read_u32_le(r)?;
+    for _ in 0..3 {
+        let _socket_color = read_u32_le(r)?;
+        let _socket_content = read_u32_le(r)?;
+    }
+    let _socket_bonus = read_u32_le(r)?;
+    let _gem_properties = read_u32_le(r)?;
+    let _required_disenchant_skill = read_i32_le(r)?;
+    let _armor_damage_modifier = read_f32_le(r)?;
+    let _duration = read_u32_le(r)?;
 
     Ok((
         entry,
@@ -434,12 +446,12 @@ pub const SLOT_PACK_FIRST: u8 = 23;
 pub const SLOT_BAG_FIRST: u8 = 19;
 
 /// `SpellCastTargets` mask bits, vmangos `SpellDefines.h`.
-const TARGET_FLAG_GAMEOBJECT: u16 = 0x0800;
+const TARGET_FLAG_GAMEOBJECT: u32 = 0x0800;
 
-const TARGET_FLAG_UNIT: u16 = 0x0002;
-const TARGET_FLAG_DEST_LOCATION: u16 = 0x0040;
-const TARGET_FLAG_SOURCE_LOCATION: u16 = 0x0020;
-const TARGET_FLAG_ITEM: u16 = 0x0010;
+const TARGET_FLAG_UNIT: u32 = 0x0002;
+const TARGET_FLAG_DEST_LOCATION: u32 = 0x0040;
+const TARGET_FLAG_SOURCE_LOCATION: u32 = 0x0020;
+const TARGET_FLAG_ITEM: u32 = 0x0010;
 
 /// The `SpellCastTargets` block of a `CMSG_USE_ITEM`, the same block a `CMSG_CAST_SPELL` carries:
 /// the reference's `SendCast` (`0x6e54f0`) only picks the opcode (`0x6e57d8`).
@@ -468,14 +480,16 @@ pub enum UseItemTarget {
 
 /// Body of `CMSG_USE_ITEM` (opcode 171): bag index (a bag's player-array slot 19-22, or
 /// [`BAG_PLAYER_INVENTORY`]), slot within it, the spell block ordinal, then the targets block.
-pub fn use_item(bag_index: u8, slot: u8, spell_slot: u8, target: UseItemTarget) -> Vec<u8> {
-    let mut body = Vec::with_capacity(5);
+pub fn use_item(bag_index: u8, slot: u8, spell_slot: u8, item_guid: u64, target: UseItemTarget) -> Vec<u8> {
+    let mut body = Vec::with_capacity(20);
     body.push(bag_index);
     body.push(slot);
     body.push(spell_slot);
+    body.push(0); // cast_count (first cast in the sequence)
+    body.extend_from_slice(&item_guid.to_le_bytes());
     let guid = match target {
         UseItemTarget::SelfImplicit => {
-            body.extend_from_slice(&0u16.to_le_bytes());
+            body.extend_from_slice(&0u32.to_le_bytes());
             return body;
         }
         UseItemTarget::Unit(guid) => {

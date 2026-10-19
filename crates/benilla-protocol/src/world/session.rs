@@ -394,13 +394,14 @@ impl WorldSession {
     }
 
     /// Use an item by bag position (`CMSG_USE_ITEM`).
-    pub fn use_item(&mut self, bag_index: u8, slot: u8, spell_slot: u8) -> Result<()> {
+    pub fn use_item(&mut self, bag_index: u8, slot: u8, spell_slot: u8, item_guid: u64) -> Result<()> {
         self.send(
             opcode::CMSG_USE_ITEM,
             &messages::use_item(
                 bag_index,
                 slot,
                 spell_slot,
+                item_guid,
                 messages::UseItemTarget::default(),
             ),
         )

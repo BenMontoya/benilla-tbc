@@ -234,6 +234,44 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
         })?,
     )?;
 
+    // TBC tracking dropdown. The current tracking aura is the available entry until
+    // the host feeds the complete set of learned tracking spells.
+    g.set(
+        "GetNumTrackingTypes",
+        lua.create_function(|lua, ()| {
+            let model = lua.app_data_ref::<Model>().expect("model app_data");
+            Ok(if model.tracking.is_some() { 1 } else { 0 })
+        })?,
+    )?;
+    g.set(
+        "GetTrackingInfo",
+        lua.create_function(|lua, index: i64| {
+            let model = lua.app_data_ref::<Model>().expect("model app_data");
+            let row = (index == 1).then_some(model.tracking.as_ref()).flatten();
+            Ok((
+                row.and_then(|t| t.name.clone()),
+                row.and_then(|t| t.icon.clone()),
+                row.map(|_| true),
+                row.map(|_| "spell".to_string()),
+            ))
+        })?,
+    )?;
+    g.set(
+        "SetTracking",
+        lua.create_function(|lua, index: Option<i64>| {
+            if index.is_none() || index == Some(0) {
+                let mut model = lua.app_data_mut::<Model>().expect("model app_data");
+                if let Some(id) = model.tracking.as_ref()
+                    .filter(|t| t.cancelable)
+                    .map(|t| t.spell_id)
+                {
+                    model.cancel_aura_requests.push(id);
+                }
+            }
+            Ok(())
+        })?,
+    )?;
+
     // CancelTrackingBuff() (`0x4e4a80`), the tracking frame's right-click: queues the tracking
     // spell's id behind its `AFLAG_CANCELABLE`; with no tracking it is a no-op.
     g.set(

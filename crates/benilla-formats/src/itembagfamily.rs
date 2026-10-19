@@ -39,7 +39,7 @@ impl ItemBagFamilyCatalog {
 fn item_bag_family_schema() -> Schema {
     let mut s = Schema::new("ItemBagFamily");
     s.add_field(SchemaField::new("ID", FieldType::UInt32));
-    for i in 0..8 {
+    for i in 0..16 {
         s.add_field(SchemaField::new(format!("Name{i}"), FieldType::String));
     }
     s.add_field(SchemaField::new("NameFlags", FieldType::UInt32));

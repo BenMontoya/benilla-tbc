@@ -513,6 +513,14 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
             Ok(MultiValue::from_iter(out))
         })?,
     )?;
+    // TBC UIParent queries the key-to-command map directly. Unlike
+    // GetBindingAction, this answers nil for an unbound key.
+    lua.globals().set("GetBindingByKey", lua.create_function(|lua, key: String| {
+        let model = lua.app_data_ref::<Model>().expect("model app_data");
+        Ok(model.keybinds.live.iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(&key))
+            .map(|(_, c)| c.clone()))
+    })?)?;
     lua.globals().set(
         "GetBindingAction",
         lua.create_function(|lua, key: String| {

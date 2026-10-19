@@ -69,6 +69,10 @@ pub struct GroupState {
     pub leader: u64,
     /// The loot tail, present whenever the list has members.
     pub loot: Option<GroupLootInfo>,
+    /// TBC normal (0) / heroic (1) selection as reported by the server.
+    pub dungeon_difficulty: u8,
+    /// Difficulty of the currently loaded instance, which may differ from the selection.
+    pub instance_difficulty: u8,
     /// The inviter's name while the invite popup is up.
     pub pending_invite: Option<String>,
     /// Each member's record by guid, seated at 1/1, patched by `SMSG_PARTY_MEMBER_STATS`, and given
@@ -442,6 +446,9 @@ impl GroupState {
             ready_check: _,
             ready_check_requests: _,
             ready_check_answers: _,
+            // Dungeon choice and map mode also exist while solo; keep both until session end.
+            dungeon_difficulty: _,
+            instance_difficulty: _,
         } = self;
         *in_group = false;
         *group_type = 0;

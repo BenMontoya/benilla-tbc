@@ -348,12 +348,10 @@ fn expand_inner(
         return element.clone();
     };
 
-    // `inherits` is one name, not a list: `0x6ee6f0` has no splitter, so `"A, B"` misses (later
-    // clients split it). It is used verbatim (`GetAttribute 0x6f2cf0` does not trim; `""` is
-    // skipped, `" "` misses) and matched case-insensitively, ASCII only: `_strnicmp` at
-    // `0x6ee747`, reached despite a mis-cased name because `SStrHash 0x64b3f0` uppercases.
+    // TBC inherits multiple templates in comma-separated order. An instance's
+    // attributes override the combined template fields.
     let mut base: Option<Element> = None;
-    for name in [inherits].into_iter().filter(|s| !s.is_empty()) {
+    for name in inherits.split(',').map(str::trim).filter(|s| !s.is_empty()) {
         if !active.insert(name.to_string()) {
             warnings.push(format!(
                 "inheritance cycle detected at template '{name}'; skipping this reference"

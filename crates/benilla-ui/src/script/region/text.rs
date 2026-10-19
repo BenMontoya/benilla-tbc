@@ -1,7 +1,7 @@
 //! The FontString-only methods: the string, its measured width, justification, non-space wrap and
 //! text height. The font block it shares with EditBox comes from [`crate::script::font_block`].
 
-use mlua::{Lua, Table, Value};
+use mlua::{Lua, ObjectLike, Table, Value};
 
 use crate::justify;
 use crate::script::Model;
@@ -28,7 +28,22 @@ pub(super) fn install(lua: &Lua, m: &Table) -> mlua::Result<()> {
         })?,
     )?;
 
-    // No `SetFormattedText`: not a 1.12 verb; 1.12 writes `SetText(format(fmt, ...))`.
+    // TBC FontString:SetFormattedText(fmt, ...) forwards formatted text through SetText.
+    m.set(
+        "SetFormattedText",
+        lua.create_function(|lua, (this, args): (Table, mlua::Variadic<Value>)| {
+            let Some(fmt) = args.first() else {
+                return this.call_method::<()>("SetText", Value::Nil);
+            };
+            let formatter: mlua::Function = lua.globals().get("format")?;
+            let rendered: Value = formatter.call(mlua::MultiValue::from_vec(
+                std::iter::once(fmt.clone())
+                    .chain(args.iter().skip(1).cloned())
+                    .collect(),
+            ))?;
+            this.call_method::<()>("SetText", rendered)
+        })?,
+    )?;
 
     // GetText answers nil for "" (`0x79d690`, its first-byte test at `0x79d73b`), though `SetText`
     // (`0x771d80`) keeps a non-NULL empty buffer (`0x771e7e`). The rule is per binding, not per

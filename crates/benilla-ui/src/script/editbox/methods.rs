@@ -39,6 +39,26 @@ pub(in crate::script) fn install(lua: &Lua) -> mlua::Result<()> {
         "GetText",
         lua.create_function(|lua, this: Table| with_editbox(lua, &this, |eb| eb.text.clone()))?,
     )?;
+    m.set(
+        "SetCursorPosition",
+        lua.create_function(|lua, (this, position): (Table, i64)| {
+            with_editbox(lua, &this, |eb| {
+                let mut at = (position.max(0) as usize).min(eb.text.len());
+                while at > 0 && !eb.text.is_char_boundary(at) {
+                    at -= 1;
+                }
+                eb.cursor = at;
+                eb.sel_start = at;
+                eb.sel_end = at;
+            })
+        })?,
+    )?;
+    m.set(
+        "GetCursorPosition",
+        lua.create_function(|lua, this: Table| {
+            with_editbox(lua, &this, |eb| eb.cursor as i64)
+        })?,
+    )?;
     // SetNumber is SetText: `0x798690` and `0x7984c0` are byte-identical but for the usage
     // string. Its gate is `lua_isstring` (`0x6f3510`), so a string is set verbatim, never parsed,
     // and nil, a boolean, a table or no argument raises the usage string. On a numeric box `-5` or

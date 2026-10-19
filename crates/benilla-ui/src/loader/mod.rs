@@ -137,7 +137,7 @@ pub fn apply_template(lua: &mlua::Lua, wrapper: &Table, kind: &str, template: &s
         let model = loader.model();
         let templates = model.framexml_templates.borrow();
         // Looked up as `framexml::expand` looks it up (exact, then case-folded); keep them in step.
-        for name in [template].into_iter().filter(|s| !s.is_empty()) {
+        for name in template.split(',').map(str::trim).filter(|s| !s.is_empty()) {
             let Some(el) = templates.get(name).or_else(|| {
                 templates
                     .iter()
@@ -472,13 +472,15 @@ impl Loader<'_> {
     /// [`Loader::expand`] for a region, only when `inherits=` names a registered element template:
     /// a FontString's `inherits=` usually names a font object, which passes through unwarned.
     pub(super) fn expand_region(&mut self, el: &Element) -> Element {
-        // One verbatim name, matched case-insensitively, as `framexml::expand` looks it up.
-        let hit = el.attr("inherits").is_some_and(|name| {
+        // TBC permits several comma-separated template names.
+        let hit = el.attr("inherits").is_some_and(|names| {
             let model = self.model();
             let templates = model.framexml_templates.borrow();
-            !name.is_empty()
-                && (templates.contains_key(name)
-                    || templates.keys().any(|k| k.eq_ignore_ascii_case(name)))
+            names.split(',').map(str::trim).any(|name| {
+                !name.is_empty()
+                    && (templates.contains_key(name)
+                        || templates.keys().any(|k| k.eq_ignore_ascii_case(name)))
+            })
         });
         if hit {
             self.expand(el)

@@ -972,8 +972,9 @@ fn writer_loop(
                         bag_index,
                         slot,
                         spell_index,
+                        item_guid,
                         target,
-                    } => w.use_item(bag_index, slot, spell_index, target),
+                    } => w.use_item(bag_index, slot, spell_index, item_guid, target),
                     ClientCommand::OpenItem { bag_index, slot } => w.open_item(bag_index, slot),
                     ClientCommand::WrapItem {
                         gift_bag,
@@ -1024,6 +1025,7 @@ fn writer_loop(
                         w.cast_spell_at_source(spell_id, src)
                     }
                     ClientCommand::CancelAura { spell_id } => w.cancel_aura(spell_id),
+                    ClientCommand::DestroyTotem { slot } => w.destroy_totem(slot),
                     ClientCommand::SetActionButton { button, packed } => {
                         w.set_action_button(button, packed)
                     }
@@ -1391,6 +1393,7 @@ fn writer_loop(
                         w.group_assistant_leader(guid, grant)
                     }
                     ClientCommand::ReadyCheckStart => w.ready_check_start(),
+                    ClientCommand::SetDungeonDifficulty { mode } => w.set_dungeon_difficulty(mode),
                     ClientCommand::ReadyCheckAnswer { ready } => w.ready_check_answer(ready),
                     ClientCommand::RequestRaidInfo => w.request_raid_info(),
                     ClientCommand::ResetInstances => w.reset_instances(),
@@ -1399,6 +1402,7 @@ fn writer_loop(
                     ClientCommand::TogglePvp => w.toggle_pvp(),
                     ClientCommand::ToggleHelm => w.toggle_helm(),
                     ClientCommand::ToggleCloak => w.toggle_cloak(),
+                    ClientCommand::SetCurrentTitle { title } => w.set_current_title(title),
                     ClientCommand::FriendListRequest => w.friend_list(),
                     ClientCommand::AddFriend { name } => w.add_friend(&name),
                     ClientCommand::SetLookingForGroup { slots, comment } => {

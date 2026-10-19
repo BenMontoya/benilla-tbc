@@ -77,9 +77,8 @@ impl Loader<'_> {
         onload
     }
 
-    /// Compile a handler body as the chunk itself, as the reference loads it (`0x704c70`): it takes
-    /// no arguments and reads its frame from `this`, so a `self` in it is an ordinary global. The
-    /// loader reads no other attribute of the element (no `function=`).
+    /// Compile FrameXML handler bodies with the positional arguments used by TBC.
+    /// The dispatcher also maintains the legacy `this` and `argN` globals.
     pub(super) fn compile_handler(
         &mut self,
         handler: &Element,
@@ -87,17 +86,35 @@ impl Loader<'_> {
         owner: &str,
         dbg: &str,
     ) -> Option<Function> {
-        // The raw body, never trimmed: a whitespace body is a real empty chunk (`apply_scripts`).
         let body = handler.body.as_str();
         if body.is_empty() {
             return None;
         }
+        let params = match name {
+            "OnEvent" => "self, event, ...",
+            "OnUpdate" => "self, elapsed",
+            "OnClick" | "OnDoubleClick" | "PreClick" | "PostClick" => "self, button, down",
+            "OnMouseDown" | "OnMouseUp" | "OnDragStart" => "self, button",
+            "OnMouseWheel" => "self, delta",
+            "OnKeyDown" | "OnKeyUp" => "self, key",
+            "OnChar" => "self, char",
+            "OnValueChanged" => "self, value, userInput",
+            "OnTextChanged" => "self, userInput",
+            "OnVerticalScroll" | "OnHorizontalScroll" => "self, offset",
+            "OnScrollRangeChanged" | "OnSizeChanged" => "self, width, height",
+            "OnHyperlinkClick" => "self, link, text, button",
+            "OnHyperlinkEnter" | "OnHyperlinkLeave" => "self, link, text",
+            "OnColorSelect" => "self, r, g, b",
+            "OnAttributeChanged" => "self, name, value",
+            _ => "self, ...",
+        };
+        let source = format!("return function({params})\n{body}\nend");
         match self
             .lua()
-            .load(body)
+            .load(source)
             .set_name(format!("{owner}:{name}"))
             .set_mode(mlua::ChunkMode::Text)
-            .into_function()
+            .eval::<Function>()
         {
             Ok(f) => Some(f),
             Err(e) => {

@@ -28,7 +28,7 @@ fn exhaustion_schema() -> Schema {
     s.add_field(SchemaField::new("Factor", FieldType::Float32));
     s.add_field(SchemaField::new("OutdoorHours", FieldType::Float32));
     s.add_field(SchemaField::new("InnHours", FieldType::Float32));
-    for i in 0..8 {
+    for i in 0..16 {
         s.add_field(SchemaField::new(format!("Name{i}"), FieldType::String));
     }
     s.add_field(SchemaField::new("NameFlags", FieldType::UInt32));

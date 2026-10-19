@@ -80,7 +80,7 @@ fn schema() -> Schema {
         s.add_field(SchemaField::new_array(
             format!("{name_col}OtherLocales"),
             FieldType::String,
-            7,
+            15,
         ));
         s.add_field(SchemaField::new(flags_col, FieldType::UInt32));
     }
@@ -108,8 +108,8 @@ pub fn load_area_poi_catalog(chain: &mut Chain) -> Result<AreaPoiCatalog> {
             flags: u32_at(r, 8).unwrap_or(0),
             area_id: u32_at(r, 9).unwrap_or(0),
             name: str_at(&rs, r, 10).unwrap_or_default(),
-            description: str_at(&rs, r, 19).unwrap_or_default(),
-            world_state_id: u32_at(r, 28).unwrap_or(0),
+            description: str_at(&rs, r, 27).unwrap_or_default(),
+            world_state_id: u32_at(r, 44).unwrap_or(0),
         };
         by_id.insert(id, rows.len());
         rows.push((id, poi));

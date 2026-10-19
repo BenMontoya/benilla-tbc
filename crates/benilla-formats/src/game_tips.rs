@@ -41,7 +41,7 @@ impl GameTipsCatalog {
 fn schema() -> Schema {
     let mut s = Schema::new("GameTips");
     s.add_field(SchemaField::new("ID", FieldType::UInt32));
-    s.add_field(SchemaField::new_array("Text", FieldType::String, 8));
+    s.add_field(SchemaField::new_array("Text", FieldType::String, 16));
     s.add_field(SchemaField::new("TextMask", FieldType::UInt32));
     s.set_key_field("ID");
     s

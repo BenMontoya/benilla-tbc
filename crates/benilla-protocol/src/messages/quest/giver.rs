@@ -183,9 +183,9 @@ fn read_item_block(r: &mut &[u8]) -> io::Result<Vec<QuestRewardItem>> {
     Ok(items)
 }
 
-/// Read `SMSG_QUESTGIVER_STATUS` (vmangos `Quest.cpp:153-157`): `u64 npcGuid, u32 status`.
+/// TBC sends a raw 64-bit NPC GUID followed by a byte-sized dialog status.
 pub(in crate::messages) fn read_questgiver_status(r: &mut &[u8]) -> io::Result<(u64, u32)> {
-    Ok((read_u64_le(r)?, read_u32_le(r)?))
+    Ok((read_u64_le(r)?, u32::from(read_u8(r)?)))
 }
 
 /// Read `SMSG_QUESTGIVER_QUEST_LIST` (vmangos `Quest.cpp:159-203`): `u64 npc`, greeting,

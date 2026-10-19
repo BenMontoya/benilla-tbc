@@ -124,6 +124,31 @@ pub(crate) enum TargetedBind {
     Corpse(u64, benilla_protocol::messages::CorpseTarget),
 }
 
+/// Resolve the actual item instance for TBC CMSG_USE_ITEM, whose fourth/fifth
+/// fields are the cast counter and the raw 64-bit item GUID. A wire bag of 255
+/// addresses the player inventory grid; 19-22 and 63-68 address container contents.
+fn use_item_guid(objects: &Objects<'_, '_>, bag: u8, slot: u8) -> u64 {
+    let Some(player) = objects.player_fields() else { return 0 };
+    let guid = match bag {
+        255 => match slot {
+            0..=22 => player.player_inv_slot(slot),
+            23..=38 => player.player_pack_slot(slot - 23),
+            39..=62 => player.player_bank_slot(slot - 39),
+            63..=68 => player.player_bank_bag_slot(slot - 63),
+            81..=96 => player.player_keyring_slot(slot - 81),
+            _ => None,
+        },
+        19..=22 => player.player_inv_slot(bag).and_then(|g| {
+            objects.object(g).and_then(|b| b.container_slot(slot))
+        }),
+        63..=68 => player.player_bank_bag_slot(bag - 63).and_then(|g| {
+            objects.object(g).and_then(|b| b.container_slot(slot))
+        }),
+        _ => None,
+    };
+    guid.unwrap_or(0)
+}
+
 impl CastLadder<'_, '_> {
     /// The targeting cursor's commit: the ladder ran when the cursor went up, so the click owes
     /// only `SendCast 0x6e54f0`'s tail (the packet, the pending arm, the GCD), then clears the
@@ -166,6 +191,7 @@ impl CastLadder<'_, '_> {
                 bag_index,
                 slot,
                 spell_index,
+                item_guid: use_item_guid(&self.objects, bag_index, slot),
                 target: match bound {
                     TargetedBind::Dest(dest) => UseItemTarget::Dest(dest),
                     TargetedBind::Source(src) => UseItemTarget::Source(src),
@@ -718,6 +744,7 @@ fn send_spell_cast(
             bag_index,
             slot,
             spell_index,
+            item_guid: use_item_guid(objects, bag_index, slot),
             target: match (on_object, item_target, target) {
                 (Some(go), _, _) => UseItemTarget::Object(go),
                 (None, Some(item), _) => UseItemTarget::Item(item),
@@ -1444,7 +1471,8 @@ mod tests {
                 bag_index: 255,
                 slot: 24,
                 spell_index: 0,
-                target: UseItemTarget::SelfImplicit
+                target: UseItemTarget::SelfImplicit,
+                ..
             })
         ));
 

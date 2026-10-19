@@ -67,7 +67,7 @@ fn schema() -> Schema {
     for name in ["LocX", "LocY", "LocZ"] {
         s.add_field(SchemaField::new(name, FieldType::Float32));
     }
-    for name in ["Flags", "Delay"] {
+    for name in ["Flags", "Delay", "ArrivalEventID", "DepartureEventID"] {
         s.add_field(SchemaField::new(name, FieldType::UInt32));
     }
     s

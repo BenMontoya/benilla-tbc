@@ -286,18 +286,21 @@ fn root_from(home: Option<PathBuf>) -> Option<PathBuf> {
     home.map(|h| h.join(ADDONS_DIR))
 }
 
-/// The reference's twelve `Blizzard_*` LoadOnDemand addons: on a 1.12 install each folder holds
-/// only a `.pub`, with the files in the archive. Probed against the chain.
-const BLIZZARD_ADDONS: [&str; 12] = [
+/// Blizzard LoadOnDemand addons indexed from the 2.4.3 client archive.
+const BLIZZARD_ADDONS: [&str; 16] = [
     "Blizzard_AuctionUI",
     "Blizzard_BattlefieldMinimap",
     "Blizzard_BindingUI",
+    "Blizzard_CombatLog",
     "Blizzard_CombatText",
     "Blizzard_CraftUI",
+    "Blizzard_GuildBankUI",
     "Blizzard_GMSurveyUI",
+    "Blizzard_ItemSocketingUI",
     "Blizzard_InspectUI",
     "Blizzard_MacroUI",
     "Blizzard_RaidUI",
+    "Blizzard_TimeManager",
     "Blizzard_TalentUI",
     "Blizzard_TradeSkillUI",
     "Blizzard_TrainerUI",

@@ -53,10 +53,10 @@ pub fn load_shapeshift_forms(chain: &mut Chain) -> Result<HashMap<u32, Shapeshif
         .read_file(SHAPESHIFT_FORM)
         .context("reading SpellShapeshiftForm.dbc")?;
     let mut schema = Schema::new("SpellShapeshiftForm");
-    for i in 0..14 {
+    for i in 0..35 {
         match i {
             // Column 2: the enUS slot of the name locstring (2..10, eight locales and a flag word).
-            2 => schema.add_field(SchemaField::new("Name", FieldType::String)),
+            2..=17 => schema.add_field(SchemaField::new(format!("Name{i}"), FieldType::String)),
             _ => schema.add_field(SchemaField::new(format!("F{i}"), FieldType::UInt32)),
         }
     }
@@ -71,9 +71,9 @@ pub fn load_shapeshift_forms(chain: &mut Chain) -> Result<HashMap<u32, Shapeshif
                 ShapeshiftForm {
                     bonus_bar: u32_at(r, 1).unwrap_or(0),
                     name: str_at(&set, r, 2).unwrap_or_default(),
-                    flags: u32_at(r, 11).unwrap_or(0),
-                    creature_type: i32_at(r, 12).unwrap_or(0),
-                    attack_icon: u32_at(r, 13)
+                    flags: u32_at(r, 19).unwrap_or(0),
+                    creature_type: i32_at(r, 20).unwrap_or(0),
+                    attack_icon: u32_at(r, 21)
                         .filter(|&i| i != 0)
                         .and_then(|i| icons.get(&i).cloned()),
                 },

@@ -161,12 +161,14 @@ pub(crate) fn spell_item_enchantment_schema() -> Schema {
             s.add_field(SchemaField::new(format!("{group}{i}"), FieldType::UInt32));
         }
     }
-    for i in 0..8 {
+    for i in 0..16 {
         s.add_field(SchemaField::new(format!("Name{i}"), FieldType::String));
     }
     s.add_field(SchemaField::new("NameFlags", FieldType::UInt32));
     s.add_field(SchemaField::new("ItemVisual", FieldType::UInt32));
     s.add_field(SchemaField::new("Flags", FieldType::UInt32));
+    s.add_field(SchemaField::new("GemID", FieldType::UInt32));
+    s.add_field(SchemaField::new("EnchantmentCondition", FieldType::UInt32));
     s
 }
 
@@ -219,8 +221,8 @@ pub fn load_enchant_catalog(chain: &mut Chain) -> Result<EnchantCatalog> {
     for r in rs.records() {
         let Some(id) = u32_at(r, 0) else { continue };
         // Every row, `Flags == 0` included: the keys are the row set.
-        flags.insert(id, u32_at(r, 23).unwrap_or(0));
-        let visual = u32_at(r, 22).unwrap_or(0) as i32;
+        flags.insert(id, u32_at(r, 31).unwrap_or(0));
+        let visual = u32_at(r, 30).unwrap_or(0) as i32;
         if visual != 0 {
             visuals.insert(id, visual);
         }

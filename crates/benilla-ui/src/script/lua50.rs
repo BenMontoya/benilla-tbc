@@ -93,7 +93,7 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
 
 /// The `bit` library 1.12 opens (`0x7fadc0`, array `0x822c18`): its eight functions, in the
 /// array's order, on 32-bit two's complement.
-fn install_bit(lua: &Lua) -> mlua::Result<()> {
+pub(super) fn install_bit(lua: &Lua) -> mlua::Result<()> {
     let bit = lua.create_table()?;
     // The client truncates to a 32-bit int and answers signed. `as i64 as u32` is C's wrapping
     // `(unsigned)(int)x`, not a saturating cast, so `bnot(0)` is -1 as there.

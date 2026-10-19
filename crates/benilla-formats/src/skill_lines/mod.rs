@@ -25,10 +25,10 @@ const SKILL_LINE: &str = "DBFilesClient\\SkillLine.dbc";
 const SKILL_LINE_ABILITY: &str = "DBFilesClient\\SkillLineAbility.dbc";
 const SKILL_RACE_CLASS_INFO: &str = "DBFilesClient\\SkillRaceClassInfo.dbc";
 
-const SKILL_LINE_FIELDS: usize = 22;
+const SKILL_LINE_FIELDS: usize = 38;
 const COL_SL_NAME_ENUS: usize = 3;
-const COL_SL_DESC_ENUS: usize = 12;
-const COL_SL_SPELL_ICON: usize = 21;
+const COL_SL_DESC_ENUS: usize = 20;
+const COL_SL_SPELL_ICON: usize = 37;
 
 const SKILL_LINE_ABILITY_FIELDS: usize = 15;
 const COL_SLA_SKILL_ID: usize = 1;
@@ -42,9 +42,9 @@ const COL_SLA_TRIVIAL_LOW: usize = 11;
 const MAX_RANK_CHAIN: usize = 16;
 
 const SKILL_LINE_CATEGORY: &str = "DBFilesClient\\SkillLineCategory.dbc";
-const SKILL_LINE_CATEGORY_FIELDS: usize = 11;
+const SKILL_LINE_CATEGORY_FIELDS: usize = 19;
 const COL_SLC_NAME_ENUS: usize = 1;
-const COL_SLC_ORDER: usize = 10;
+const COL_SLC_ORDER: usize = 18;
 
 const SKILL_RACE_CLASS_INFO_FIELDS: usize = 8;
 const COL_SRCI_SKILL_ID: usize = 1;

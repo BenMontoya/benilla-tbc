@@ -3,6 +3,38 @@
 use super::*;
 
 impl ObjectFields {
+    /// Active title's bit index, public PLAYER_CHOSEN_TITLE (UNIT_END + 0x19e).
+    pub fn player_chosen_title(&self) -> Option<u32> {
+        self.get_u32(234 + 0x19e)
+    }
+
+    /// The 64 title bits held by the player, private PLAYER__FIELD_KNOWN_TITLES.
+    pub fn player_known_titles(&self) -> Option<u64> {
+        self.get_guid(234 + 0x2b2)
+    }
+
+    /// TBC 2.4.3 private PLAYER_FIELD_HONOR_CURRENCY (UNIT_END + 0x530).
+    /// Stock UI uses these spendable points, not the obsolete Vanilla honor ladder.
+    pub fn player_honor_currency(&self) -> Option<u32> {
+        self.get_u32(234 + 0x530)
+    }
+
+    /// TBC 2.4.3 private PLAYER_FIELD_ARENA_CURRENCY (UNIT_END + 0x531).
+    pub fn player_arena_currency(&self) -> Option<u32> {
+        self.get_u32(234 + 0x531)
+    }
+
+    /// TBC combat-rating fields; the 24 entries start at UNIT_END + 0x506.
+    pub fn player_combat_rating(&self, index: u8) -> Option<u32> {
+        (index < 24).then(|| self.get_u32(234 + 0x506 + u16::from(index)))?
+    }
+
+    /// The three arena-team roster slots (2v2/3v3/5v5), six update fields each.
+    pub fn player_arena_team_field(&self, slot: u8, field: u8) -> Option<u32> {
+        (slot < 3 && field < 6)
+            .then(|| self.get_u32(234 + 0x51e + u16::from(slot) * 6 + u16::from(field)))?
+    }
+
     /// `OBJECT_FIELD_ENTRY` (3): the template entry. The only route to a pet's template: its guid
     /// holds a pet number instead, but vmangos writes the entry here (`Creature.cpp:376`).
     pub fn object_entry(&self) -> Option<u32> {

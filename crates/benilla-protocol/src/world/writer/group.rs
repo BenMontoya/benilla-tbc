@@ -7,6 +7,12 @@ use crate::messages::{self, opcode};
 use super::WorldWriter;
 
 impl WorldWriter {
+    /// Request normal (0) or heroic (1), MSG_SET_DUNGEON_DIFFICULTY.
+    /// Only leaders may change a group's difficulty; the server enforces that rule.
+    pub fn set_dungeon_difficulty(&mut self, mode: u8) -> Result<()> {
+        self.send(opcode::MSG_SET_DUNGEON_DIFFICULTY, &u32::from(mode).to_le_bytes())
+    }
+
     /// Invite a player to group, answered by `SMSG_PARTY_COMMAND_RESULT`.
     pub fn group_invite(&mut self, member_name: &str) -> Result<()> {
         self.send(

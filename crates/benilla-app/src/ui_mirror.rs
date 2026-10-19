@@ -116,6 +116,23 @@ fn feed_mirror_timers(
                 _ => {}
             }
         }
+        // These getters are polled by stock MirrorTimer.lua on world-entry and
+        // every OnUpdate; the event alone cannot sustain the timer's progress.
+        match edge {
+            MirrorTimerEdge::Start(start) => {
+                script.set_tbc_mirror_timer(raw as usize, Some((
+                    script_name(kind).to_string(), start.remaining_ms, start.duration_ms,
+                    start.scale, start.paused,
+                    caption(kind, spell_name(start.spell_id).as_deref()),
+                )));
+            }
+            MirrorTimerEdge::Pause { paused, .. } => {
+                script.pause_tbc_mirror_timer(raw as usize, paused);
+            }
+            MirrorTimerEdge::Stop { .. } => {
+                script.set_tbc_mirror_timer(raw as usize, None);
+            }
+        }
         let name = ScriptValue::Str(script_name(kind).into());
         let (event, args): (&str, Vec<ScriptValue>) = match edge {
             MirrorTimerEdge::Start(start) => (

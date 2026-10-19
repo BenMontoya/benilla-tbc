@@ -152,6 +152,14 @@ pub(super) fn truthy_nonzero(v: &Value) -> bool {
 pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
     let g = lua.globals();
 
+    // TBC ActionButton.lua requires this before any action-bar OnLoad.
+    // A live stackable item advertises its count through the existing action feed.
+    g.set("IsStackableAction", lua.create_function(|lua, action: u32| {
+        let model = lua.app_data_ref::<Model>().expect("model app_data");
+        Ok(flag(model.actions.get(&action).is_some_and(|s|
+            s.kind == ACTION_KIND_ITEM && (s.count > 1 || s.consumable))))
+    })?)?;
+
     g.set(
         "HasAction",
         lua.create_function(|lua, action: u32| {
@@ -245,17 +253,27 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
         })?,
     )?;
 
-    // UseAction(action [, checkCursor [, onSelf]]): a nonzero `checkCursor` while the cursor holds
-    // a payload places it, as `PlaceAction` does; otherwise the press is queued with `onSelf`, the
-    // self-cast flag. FrameXML passes 1 from a click and 0 from a keybind; the binding's own test
-    // of it is untraced, and place-on-click is the reading that split implies.
+    // TBC SecureActionButton_OnClick calls UseAction(action, unit, button).
+    // The earlier 1.12 port interpreted that as (action, checkCursor, onSelf):
+    // a LeftButton string became an unconditional self-cast, and an empty `unit`
+    // meant clicking a slot while carrying an action could never place it.
+    // Keep compatibility with explicit numeric/boolean 1.12 calls, but give the
+    // three-argument TBC form its real meaning.
     g.set(
         "UseAction",
         lua.create_function(|lua, (action, rest): (u32, MultiValue)| {
+            let args: Vec<&Value> = rest.iter().collect();
+            let tbc_button = matches!(args.get(1), Some(Value::String(s)) if
+                s.to_str().is_ok_and(|b| b.ends_with("Button")));
+            let (check_cursor, on_self) = if tbc_button {
+                let on_self = matches!(args.first(), Some(Value::String(s)) if
+                    s.to_str().is_ok_and(|u| u.eq_ignore_ascii_case("player")));
+                (true, on_self)
+            } else {
+                (args.first().is_some_and(|v| !matches!(v, Value::String(_)) && truthy_nonzero(v)),
+                 args.get(1).is_some_and(|v| !matches!(v, Value::String(_)) && truthy_nonzero(v)))
+            };
             let mut model = lua.app_data_mut::<Model>().expect("model app_data");
-            let mut rest = rest.iter();
-            let check_cursor = rest.next().is_some_and(truthy_nonzero);
-            let on_self = rest.next().is_some_and(truthy_nonzero);
             if check_cursor && model.cursor.is_some() {
                 super::cursor::place_action(&mut model, action);
             } else {
@@ -287,11 +305,22 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
         })?,
     )?;
 
-    // ChangeActionBarPage(): fires `ACTIONBAR_PAGE_CHANGED` synchronously and returns nothing
-    // (`0x4e7650`); the page itself is FrameXML's `CURRENT_ACTIONBAR_PAGE`.
+    // TBC action-bar paging, independent of the stance/bonus-bar offset.
+    g.set(
+        "GetActionBarPage",
+        lua.create_function(|lua, ()| {
+            let model = lua.app_data_ref::<Model>().expect("model app_data");
+            Ok(i64::from(model.action_bar_page))
+        })?,
+    )?;
     g.set(
         "ChangeActionBarPage",
-        lua.create_function(|lua, ()| {
+        lua.create_function(|lua, page: Option<i64>| {
+            if let Some(page) = page {
+                if (1..=6).contains(&page) {
+                    lua.app_data_mut::<Model>().expect("model app_data").action_bar_page = page as u8;
+                }
+            }
             super::tick::fire_event_into(lua, "ACTIONBAR_PAGE_CHANGED", Vec::new());
             Ok(())
         })?,

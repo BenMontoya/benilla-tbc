@@ -223,8 +223,9 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
     }
     // `Jump` (`0x513bd0`), `ToggleRun` (`0x513d50`) and `ToggleAutoRun` (`0x513de0`) open on the
     // same gate; their further refusals (a dead or rooted player) are the engine's, as for the key.
-    let fired: [(&str, FiredInput); 3] = [
+    let fired: [(&str, FiredInput); 4] = [
         ("Jump", FiredInput::Jump),
+        ("JumpOrAscendStart", FiredInput::Jump),
         ("ToggleRun", FiredInput::ToggleRun),
         ("ToggleAutoRun", FiredInput::ToggleAutoRun),
     ];
@@ -239,6 +240,10 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
             })?,
         )?;
     }
+    // TBC pairs the ground jump with an ascend release for flying mounts.
+    // The ground mover uses the jump press; it has no held ascend channel yet.
+    inert(lua, &["AscendStop", "DescendStop"])?;
+
     // `IsMouselooking()` (`0x514270`): `[InputControl+4] & 1`, the TurnOrAction channel, not the
     // camera's freelook bit; 1 or nil (`0x514280`/`0x514293`).
     g.set(
@@ -352,9 +357,10 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
         })?,
     )?;
     // `ToggleSheath()` and `SitOrStand()` resolve the active player and act on it, ungated.
-    let posture: [(&str, FiredInput); 2] = [
+    let posture: [(&str, FiredInput); 3] = [
         ("ToggleSheath", FiredInput::ToggleSheath),
         ("SitOrStand", FiredInput::SitOrStand),
+        ("SitStandOrDescendStart", FiredInput::SitOrStand),
     ];
     for (name, input) in posture {
         g.set(

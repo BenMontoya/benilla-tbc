@@ -146,6 +146,7 @@ pub(super) fn feed_party(
         return;
     };
     let (fed, vm_reset) = fed.get_reset(&script);
+    script.set_tbc_dungeon_difficulty(group.dungeon_difficulty);
     let edges = FieldEdges::collect(&mut edges);
     // The ready-check summary lines the timeout tick composed, pushed as system chat ahead of the
     // gate: the tick runs on the frame clock, which the gate does not watch.
@@ -835,6 +836,12 @@ pub(super) fn drain_party(
         return;
     };
     let self_guid = self_q.iter().next().map(|g| g.0);
+    for title in script.take_tbc_title_requests() {
+        let _ = commands.0.send(ClientCommand::SetCurrentTitle { title });
+    }
+    for mode in script.take_tbc_dungeon_change_requests() {
+        let _ = commands.0.send(ClientCommand::SetDungeonDifficulty { mode });
+    }
     for req in script.take_party_requests() {
         // In the sandbox the server holds no group, so the group-changing intents apply to the
         // mirror as its echo would. Invites and accept/decline stay real: a real group ends it.
@@ -1131,7 +1138,8 @@ fn apply_test_intent(
                     method: method_id as u8,
                     master,
                     threshold,
-                });
+                    difficulty: group.loot.map_or(0, |l| l.difficulty),
+                    });
             }
             true
         }
@@ -1141,7 +1149,8 @@ fn apply_test_intent(
                 method,
                 master,
                 threshold: *threshold as u8,
-            });
+                difficulty: group.loot.map_or(0, |l| l.difficulty),
+                });
             true
         }
         PartyRequest::SetRaidTarget { unit, index } => {
@@ -1324,7 +1333,8 @@ pub(crate) fn synthetic_roster(
                 method: 2,
                 master: 0xF003,
                 threshold: 3,
-            }),
+                difficulty: 0,
+                }),
             None,
         )
         .lines;
@@ -1434,7 +1444,8 @@ pub(crate) fn synthetic_raid(
                 method: 2,
                 master: leader,
                 threshold: 3,
-            }),
+                difficulty: 0,
+                }),
             self_guid,
         )
         .lines;
@@ -1846,7 +1857,8 @@ mod tests {
             method: 2,
             master: member(1),
             threshold: 3,
-        };
+            difficulty: 0,
+            };
         resend(&mut app, &[ON, ON], member(1), Some(master));
         assert_eq!(changed(&mut app), 1, "a new loot method");
         let raised = GroupLootInfo {
@@ -2102,7 +2114,8 @@ mod tests {
             Some(GroupLootInfo {
                 method: 4,
                 master: 0,
-                threshold: 4
+                threshold: 4,
+                difficulty: 0,
             })
         );
 

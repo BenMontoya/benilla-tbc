@@ -26,6 +26,7 @@ pub struct InitWorldStates {
 pub(in crate::messages) fn read_init_world_states(r: &mut &[u8]) -> io::Result<InitWorldStates> {
     let map = read_u32_le(r)?;
     let zone = read_u32_le(r)?;
+    let _area = read_u32_le(r)?; // TBC area ID, added in patch 2.1
     let count = read_u16_le(r)?;
     let mut states = Vec::new();
     for _ in 0..count {

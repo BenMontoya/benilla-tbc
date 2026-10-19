@@ -82,7 +82,7 @@ fn schema() -> Schema {
         s.add_field(SchemaField::new_array(
             format!("{name}OtherLocales"),
             FieldType::String,
-            7,
+            15,
         ));
         s.add_field(SchemaField::new(format!("{name}Flags"), FieldType::UInt32));
     };
@@ -119,16 +119,16 @@ pub fn load_world_state_ui_catalog(chain: &mut Chain) -> Result<WorldStateUiCata
                 area_id: u32_at(r, 2).unwrap_or(0),
                 icon: str_at(&rs, r, 3).unwrap_or_default(),
                 text: str_at(&rs, r, 4).unwrap_or_default(),
-                tooltip: str_at(&rs, r, 13).unwrap_or_default(),
-                state_variable: u32_at(r, 23).unwrap_or(0),
-                ui_type: u32_at(r, 24).unwrap_or(0),
-                dynamic_icon: str_at(&rs, r, 25).unwrap_or_default(),
-                dynamic_tooltip: str_at(&rs, r, 26).unwrap_or_default(),
-                extended_ui: str_at(&rs, r, 35).unwrap_or_default(),
+                tooltip: str_at(&rs, r, 21).unwrap_or_default(),
+                state_variable: u32_at(r, 39).unwrap_or(0),
+                ui_type: u32_at(r, 40).unwrap_or(0),
+                dynamic_icon: str_at(&rs, r, 41).unwrap_or_default(),
+                dynamic_tooltip: str_at(&rs, r, 42).unwrap_or_default(),
+                extended_ui: str_at(&rs, r, 59).unwrap_or_default(),
                 extended_ui_state: [
-                    u32_at(r, 36).unwrap_or(0),
-                    u32_at(r, 37).unwrap_or(0),
-                    u32_at(r, 38).unwrap_or(0),
+                    u32_at(r, 60).unwrap_or(0),
+                    u32_at(r, 61).unwrap_or(0),
+                    u32_at(r, 62).unwrap_or(0),
                 ],
             },
         ));
